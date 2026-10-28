@@ -1,8 +1,8 @@
 {
   "name": "dev-studio",
   "productName": "Dev Studio",
-  "version": "1.0.0",
-  "description": "AI development studio for Windows — chat with Claude, ChatGPT, Perplexity, Gemini and Groq, and let an autonomous agent write and run your code.",
+  "version": "1.1.0",
+  "description": "Dev Studio \u2014 AI development studio for Windows: multi-model AI team, real terminal, official plugins, PIN-locked and audited, with a loopback bridge that opens the same workspace in Chrome.",
   "author": {
     "name": "Dev Studio",
     "email": "dev@studio.local"
@@ -21,7 +21,9 @@
     "test:logic": "node test/run.cjs",
     "test:ui": "vitest run",
     "test:e2e": "playwright test",
-    "test": "npm run test:logic && npm run test:ui"
+    "test": "npm run test:logic && npm run test:ui",
+    "verify": "npm run test:logic && npm run test:ui",
+    "e2e:install": "playwright install chromium"
   },
   "devDependencies": {
     "@monaco-editor/react": "^4.6.0",

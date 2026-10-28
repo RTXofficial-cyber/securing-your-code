@@ -23,6 +23,10 @@ Download from the run's **Artifacts** section and run it.
 
 ### Option B — build it on your own Windows PC
 
+**Fastest:** double-click **`build-windows.bat`**. It checks Node, installs,
+runs the tests, builds and packs the `.exe` files into `release/`, then opens
+that folder for you. Prefer to do it by hand?
+
 Requirements: Node.js 18+ (LTS recommended). Nothing else.
 
 ```bash
