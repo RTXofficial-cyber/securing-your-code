@@ -10,7 +10,7 @@ const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
 export default function Studio({
   info, theme, providers, settingsTarget, onSettingsTargetHandled,
-  onToggleTheme, onHome, onSetup, onProvidersChanged
+  onToggleTheme, onHome, onSetup, onLock, onProvidersChanged
 }) {
   // ---- editors (tabs) ----
   const [openFiles, setOpenFiles] = useState([]);
@@ -190,6 +190,7 @@ export default function Studio({
         <div className="sb-spacer" />
         <span className="sb-item">{info?.packaged ? 'packaged build' : isDesktop ? 'desktop dev' : 'browser preview'}</span>
         <button className="sb-item" onClick={onSetup}>setup &amp; .exe</button>
+        <button className="sb-item" onClick={onLock} title="Lock the app now"> lock</button>
         <button className="sb-item" onClick={onToggleTheme}>{theme === 'light' ? '☾ dark' : '☀ light'}</button>
         <span className="sb-item">v{info?.version || '1.0.0'}</span>
       </div>
@@ -203,6 +204,7 @@ export default function Studio({
           onClose={() => setSettingsOpen(false)}
           onSaved={onProvidersChanged}
           onChooseWorkspace={chooseWorkspace}
+          onLock={onLock}
         />
       )}
     </div>

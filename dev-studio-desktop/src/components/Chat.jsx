@@ -103,7 +103,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
   useEffect(() => {
     if (current && !current.models.some((m) => m.id === model)) setModel(current.models[0].id);
   }, [current]);
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, busy]);
+  useEffect(() => { bottomRef.current?.scrollIntoView?.({ behavior: 'smooth' }); }, [messages, busy]);
 
   const send = async () => {
     const text = input.trim();

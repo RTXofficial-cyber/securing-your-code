@@ -8,6 +8,7 @@ const providers = require('../shared/providers.cjs');
 const agent = require('../shared/agent.cjs');
 const orchestrator = require('../shared/orchestrator.cjs');
 const { PluginManager } = require('../shared/plugins.cjs');
+const { LockManager } = require('../shared/lock.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null };
 function getState() {
@@ -48,6 +49,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
   });
   mainIpc.handle('plugins:setEnabled', (_e, id, on) => {
     const r = pluginManager.setEnabled(id, on);
+    if (r.ok) state.lock?.audit(on ? 'plugin.enable' : 'plugin.disable', { id });
     return r;
   });
   mainIpc.handle('plugins:test', (_e, id) => pluginManager.test(id));
@@ -57,6 +59,34 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     const err = await shell.openPath(dir);
     return { ok: !err, error: err || null, dir };
   });
+
+  // ---------- app lock + audit ----------
+  const lock = new LockManager(path.join(app.getPath('userData'), 'lock.json'));
+  state.lock = lock;
+
+  mainIpc.handle('lock:state', () => ({ ok: true, set: lock.isSet(), autoLockMinutes: lock.getAutoLock() }));
+  mainIpc.handle('lock:set', (_e, pin) => {
+    try { lock.setPin(pin); return { ok: true }; }
+    catch (e) { return { ok: false, error: e.message }; }
+  });
+  mainIpc.handle('lock:verify', (_e, pin) => {
+    const good = lock.verify(pin);
+    if (good) lock.noteUnlock(); else lock.noteDenied();
+    return { ok: good };
+  });
+  mainIpc.handle('lock:change', (_e, oldPin, newPin) => {
+    try { lock.changePin(oldPin, newPin); return { ok: true }; }
+    catch (e) { return { ok: false, error: e.message }; }
+  });
+  mainIpc.handle('lock:clear', () => { lock.clearPin(); return { ok: true }; });
+  mainIpc.handle('lock:note', (_e, kind) => {
+    if (kind === 'lock') lock.noteLock();
+    else if (kind === 'unlock') lock.noteUnlock();
+    return { ok: true };
+  });
+  mainIpc.handle('lock:autoLock', (_e, minutes) => { lock.setAutoLock(minutes); return { ok: true, autoLockMinutes: lock.getAutoLock() }; });
+  mainIpc.handle('audit:read', (_e, limit) => ({ ok: true, entries: lock.readAudit(limit || 200) }));
+  mainIpc.handle('audit:clear', () => { lock.clearAudit(); return { ok: true }; });
 
   const send = (channel, payload) => {
     const w = getWindow();
@@ -116,6 +146,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     });
     if (res.canceled || !res.filePaths[0]) return { changed: false, workspace: state.rootRef.value };
     state.rootRef.value = res.filePaths[0];
+    state.lock?.audit('workspace.change', { workspace: state.rootRef.value });
     fs.mkdirSync(state.rootRef.value, { recursive: true });
     if (state.terminal) {
       state.terminal.dispose();
@@ -132,6 +163,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     if (!p) return { ok: false, error: 'Unknown provider' };
     if (!p.keyEnv) return { ok: false, error: 'This provider needs no key' };
     providers.setKey(p.keyEnv, apiKey);
+    state.lock?.audit(apiKey ? 'key.set' : 'key.remove', { provider: providerId });
 
     // Persist so the key survives restarts (main process only, never renderer).
     try {
@@ -191,6 +223,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         }
         if (actions.length) actionResults = await agent.executeActions(actions, ws);
       }
+      state.lock?.audit('agent.run', { provider, actions: actionResults.length });
       return { ok: true, reply: agent.stripActions(reply), raw: reply, actionResults, skipped };
     } catch (err) {
       return { ok: false, error: err.message, code: err.code || 'ERROR' };
@@ -210,6 +243,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         ws,
         permissions: state.permissions
       });
+      state.lock?.audit('ensemble.run', { steps: r.steps.length, actions: r.actionResults.length });
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, error: err.message };

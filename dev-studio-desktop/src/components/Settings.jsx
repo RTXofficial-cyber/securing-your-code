@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api.js';
 
-export default function Settings({ info, providers, workspace, focusProvider, onClose, onSaved, onChooseWorkspace }) {
+export default function Settings({ info, providers, workspace, focusProvider, onClose, onSaved, onChooseWorkspace, onLock }) {
   const [selected, setSelected] = useState(focusProvider || providers.find((p) => p.keyEnv)?.id || 'builtin');
   const [value, setValue] = useState('');
   const [show, setShow] = useState(false);
@@ -12,6 +12,10 @@ export default function Settings({ info, providers, workspace, focusProvider, on
   const [caps, setCaps] = useState(null);
   const [plugins, setPlugins] = useState(null);
   const [pluginMsg, setPluginMsg] = useState({});
+  const [lockInfo, setLockInfo] = useState(null);
+  const [audit, setAudit] = useState(null);
+  const [sec, setSec] = useState({ cur: '', nw: '', cf: '' });
+  const [secMsg, setSecMsg] = useState(null);
 
   const current = providers.find((p) => p.id === selected);
 
@@ -20,7 +24,30 @@ export default function Settings({ info, providers, workspace, focusProvider, on
   useEffect(() => {
     api.capabilities().then(setCaps).catch(() => {});
     api.plugins().then((r) => r?.ok && setPlugins(r)).catch(() => {});
+    api.lockState().then(setLockInfo).catch(() => {});
+    api.auditRead(50).then((r) => r?.ok && setAudit(r.entries)).catch(() => {});
   }, []);
+
+  const savePin = async () => {
+    setSecMsg(null);
+    if (sec.nw !== sec.cf) { setSecMsg({ ok: false, text: 'New PIN and confirmation do not match.' }); return; }
+    const r = lockInfo?.set ? await api.lockChange(sec.cur, sec.nw) : await api.lockSet(sec.nw);
+    if (r?.ok) {
+      setSecMsg({ ok: true, text: lockInfo?.set ? 'PIN changed.' : 'PIN set. The app now locks behind it.' });
+      setSec({ cur: '', nw: '', cf: '' });
+      setLockInfo(await api.lockState());
+    } else setSecMsg({ ok: false, text: r?.error || 'Could not save PIN' });
+  };
+
+  const clearPin = async () => {
+    const r = await api.lockClear();
+    if (r?.ok) { setLockInfo(await api.lockState()); setSecMsg({ ok: true, text: 'PIN removed.' }); }
+  };
+
+  const setAuto = async (m) => {
+    const r = await api.lockAutoLock(m);
+    if (r?.ok) setLockInfo((l) => ({ ...l, autoLockMinutes: r.autoLockMinutes }));
+  };
 
   const togglePlugin = async (id, on) => {
     const r = await api.pluginSetEnabled(id, on);
@@ -175,6 +202,58 @@ export default function Settings({ info, providers, workspace, focusProvider, on
                 ))}
               </div>
             ) : <div className="hint">Loading…</div>}
+          </div>
+
+          {/* ---- security ---- */}
+          <div className="field">
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Security — app lock &amp; audit</span>
+              {onLock && <button className="btn btn-sm" onClick={() => { onClose(); onLock(); }}>lock now</button>}
+            </label>
+            <div className="cap-detail" style={{ marginBottom: 8 }}>
+              {lockInfo?.set
+                ? 'A PIN protects this app. Only a correct PIN opens your workspace, keys and terminal.'
+                : 'No PIN set — anyone with access to this machine can open the app. Recommended: set one.'}
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {lockInfo?.set && (
+                <input className="lock-input inline" type="password" placeholder="Current PIN" value={sec.cur} onChange={(e) => setSec((s) => ({ ...s, cur: e.target.value }))} />
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input className="lock-input inline" type="password" placeholder="New PIN (4+ chars)" value={sec.nw} onChange={(e) => setSec((s) => ({ ...s, nw: e.target.value }))} style={{ flex: 1 }} />
+                <input className="lock-input inline" type="password" placeholder="Confirm" value={sec.cf} onChange={(e) => setSec((s) => ({ ...s, cf: e.target.value }))} style={{ flex: 1 }} />
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <button className="btn btn-sm btn-solid" onClick={savePin} disabled={!sec.nw || !sec.cf}>{lockInfo?.set ? 'Change PIN' : 'Set PIN'}</button>
+                {lockInfo?.set && <button className="btn btn-sm" onClick={clearPin}>Remove PIN</button>}
+                <span className="cap-detail">Auto-lock after</span>
+                <select className="sel sel-sm" style={{ width: 90 }} value={lockInfo?.autoLockMinutes ?? 0} onChange={(e) => setAuto(e.target.value)}>
+                  <option value={0}>never</option><option value={5}>5 min</option><option value={10}>10 min</option><option value={30}>30 min</option>
+                </select>
+              </div>
+              {secMsg && <div className="cap-detail" style={{ color: secMsg.ok ? 'var(--ok)' : 'var(--bad)' }}>{secMsg.text}</div>}
+            </div>
+
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span className="cap-detail" style={{ margin: 0 }}>Audit log (newest first)</span>
+              <span style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm" onClick={() => api.auditRead(50).then((r) => r?.ok && setAudit(r.entries))}>⟳</button>
+                <button className="btn btn-sm" onClick={() => api.auditClear().then(() => setAudit([]))}>clear</button>
+              </span>
+            </div>
+            <div className="audit-box">
+              {audit?.length ? audit.map((a, i) => (
+                <div className="audit-row" key={i}>
+                  <span className="audit-ts">{new Date(a.ts).toLocaleString()}</span>
+                  <span className="audit-ev">{a.event}</span>
+                  {a.detail && <span className="audit-dt">{JSON.stringify(a.detail)}</span>}
+                </div>
+              )) : <div className="cap-detail">No audit entries yet.</div>}
+            </div>
+            <div className="hint">
+              Hardening active: renderer sandboxed, no Node access, all permission requests denied,
+              external network calls from the UI blocked, plugin code isolated, keys stored 0600.
+            </div>
           </div>
 
           {/* ---- plugins ---- */}

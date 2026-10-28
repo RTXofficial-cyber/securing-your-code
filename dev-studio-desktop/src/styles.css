@@ -604,3 +604,38 @@ span.sb-item { cursor: default; }
   padding: 8px 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted);
   white-space: pre-wrap; max-height: 200px; overflow: auto; font-family: var(--mono); line-height: 1.6;
 }
+
+/* ============================================================
+   APP LOCK + AUDIT
+   ============================================================ */
+.lockscreen {
+  height: 100%; display: grid; place-items: center;
+  background: radial-gradient(1200px 600px at 50% -10%, var(--bg-soft), var(--bg));
+}
+.lock-card {
+  width: min(92vw, 380px); padding: 34px 30px; text-align: center;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-lg);
+  box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px;
+}
+.lock-title { font-family: var(--serif); font-weight: 400; font-size: 26px; letter-spacing: -0.02em; }
+.lock-sub { color: var(--muted); font-size: 13px; line-height: 1.6; }
+.lock-input {
+  width: 100%; padding: 11px 13px; border-radius: var(--r-md);
+  border: 1px solid var(--line-strong); background: var(--bg-soft);
+  font-size: 15px; letter-spacing: .3em; text-align: center; font-family: var(--mono);
+}
+.lock-input.inline { letter-spacing: .2em; font-size: 13px; text-align: left; }
+.lock-input:focus { outline: none; border-color: var(--ink); background: var(--bg); }
+.lock-error { color: var(--bad); font-size: 12.5px; }
+.lock-actions { display: flex; gap: 10px; justify-content: center; margin-top: 4px; flex-wrap: wrap; }
+
+.audit-box {
+  margin-top: 8px; max-height: 170px; overflow: auto;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg-soft);
+  font-family: var(--mono); font-size: 11px;
+}
+.audit-row { display: flex; gap: 10px; padding: 5px 9px; border-bottom: 1px solid var(--line); align-items: baseline; }
+.audit-row:last-child { border-bottom: none; }
+.audit-ts { color: var(--faint); flex-shrink: 0; }
+.audit-ev { color: var(--ink); font-weight: 600; flex-shrink: 0; }
+.audit-dt { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

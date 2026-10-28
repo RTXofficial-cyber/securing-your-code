@@ -12,6 +12,7 @@
 export const isDesktop = typeof window !== 'undefined' && !!window.studio;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let mockPin = null;
 
 const mockTree = [
   {
@@ -111,6 +112,19 @@ const mock = {
   pluginSetEnabled: async () => ({ ok: true }),
   pluginTest: async (id) => ({ ok: true, kind: id === 'git-tools' ? 'tools' : 'provider', sample: 'ok', tools: ['git_init', 'git_status', 'git_commit', 'git_log'] }),
   pluginOpenFolder: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  lockState: async () => ({ ok: true, set: mockPin !== null, autoLockMinutes: 0 }),
+  lockSet: async (pin) => {
+    if (String(pin || '').length < 4) return { ok: false, error: 'PIN must be at least 4 characters' };
+    mockPin = String(pin);
+    return { ok: true };
+  },
+  lockVerify: async (pin) => ({ ok: String(pin) === mockPin }),
+  lockChange: async (o, n) => (String(o) === mockPin ? ((mockPin = String(n)), { ok: true }) : { ok: false, error: 'Current PIN is incorrect' }),
+  lockClear: async () => { mockPin = null; return { ok: true }; },
+  lockNote: async () => ({ ok: true }),
+  lockAutoLock: async (m) => ({ ok: true, autoLockMinutes: Number(m) || 0 }),
+  auditRead: async () => ({ ok: true, entries: [{ ts: new Date().toISOString(), event: 'preview.start', detail: null }] }),
+  auditClear: async () => ({ ok: true }),
   files: async () => ({ ok: true, tree: mockTree, workspace: '(browser preview)' }),
   readFile: async (p) => ({ ok: true, content: `// ${p}\n// Preview content — desktop app reads real files.\n` }),
   writeFile: async () => ({ ok: true }),

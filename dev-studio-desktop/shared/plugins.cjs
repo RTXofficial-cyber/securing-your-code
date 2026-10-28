@@ -51,7 +51,9 @@ class PluginManager {
   /** Discover plugin folders. Safe to call repeatedly. */
   scan() {
     this.plugins.clear();
-    for (const dir of this.dirs) {
+    for (let di = 0; di < this.dirs.length; di++) {
+      const dir = this.dirs[di];
+      const official = di === 0; // only the shipped folder is trusted by default
       let entries = [];
       try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
       for (const e of entries) {
@@ -74,8 +76,11 @@ class PluginManager {
           error = (error ? error + '; ' : '') + `entry file not found: ${manifest.entry}`;
         }
 
-        if (!(manifest.id in this.enabled)) this.enabled[manifest.id] = manifest.enabledByDefault !== false;
-        this.plugins.set(manifest.id, { manifest, dir: pdir, error, status: 'pending', provides: null });
+        // Official plugins honour enabledByDefault (default on). User-installed
+        // plugins default OFF — untrusted code must be explicitly enabled.
+        const def = official ? manifest.enabledByDefault !== false : manifest.enabledByDefault === true;
+        if (!(manifest.id in this.enabled)) this.enabled[manifest.id] = def;
+        this.plugins.set(manifest.id, { manifest, dir: pdir, error, status: 'pending', provides: null, official });
       }
     }
     this._saveEnabled();
@@ -159,7 +164,7 @@ class PluginManager {
       enabled: Boolean(this.enabled[p.manifest.id]),
       status: p.status,
       error: p.error || null,
-      official: this.dirs[0] ? p.dir.startsWith(this.dirs[0]) : false,
+      official: Boolean(p.official),
       provides: {
         provider: p.provides?.provider ? { id: p.provides.provider.id, name: p.provides.provider.name } : null,
         tools: p.provides?.toolNames || []

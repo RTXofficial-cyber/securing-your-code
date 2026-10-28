@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Menu, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -32,8 +32,10 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
-      spellcheck: false
+      sandbox: true,
+      spellcheck: false,
+      webviewTag: false,
+      allowRunningInsecureContent: false
     }
   });
 
@@ -67,6 +69,24 @@ function createWindow() {
 app.whenReady().then(() => {
   const workspace = defaultWorkspace();
   fs.mkdirSync(workspace, { recursive: true });
+
+  /* ---------- defence in depth ---------- */
+  const ses = session.defaultSession;
+  // Deny every permission request (camera, mic, geolocation, notifications...)
+  ses.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
+  // The renderer may only talk to loopback (the local bridge). Anything else
+  // is cancelled, so a compromised page cannot phone home.
+  ses.webRequest.onBeforeRequest((details, callback) => {
+    const u = details.url;
+    if (/^https?:/i.test(u) && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?([/?#]|$)/i.test(u)) {
+      callback({ cancel: true });
+    } else {
+      callback({});
+    }
+  });
+  app.on('web-contents-created', (_e, contents) => {
+    contents.on('will-attach-webview', (e) => e.preventDefault());
+  });
 
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(null);

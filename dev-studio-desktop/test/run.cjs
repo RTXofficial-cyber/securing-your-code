@@ -308,8 +308,9 @@ async function test(name, fn) {
 
   // a user plugin that adds a provider + a tool
   fs.mkdirSync(path.join(userDir, 'demo'), { recursive: true });
+  // enabledByDefault:true opts a USER plugin in (the new secure default is off)
   fs.writeFileSync(path.join(userDir, 'demo', 'plugin.json'), JSON.stringify({
-    id: 'demo', name: 'Demo plugin', version: '1.0.0', entry: 'index.cjs', type: 'bundle'
+    id: 'demo', name: 'Demo plugin', version: '1.0.0', entry: 'index.cjs', type: 'bundle', enabledByDefault: true
   }));
   fs.writeFileSync(path.join(userDir, 'demo', 'index.cjs'), `
     module.exports = {
@@ -346,10 +347,15 @@ async function test(name, fn) {
     assert.ok(agent.hasTool('demo_tool'), 'demo tool registered');
   });
 
-  await test('broken plugin is isolated with status error', () => {
+  await test('broken plugin is isolated with status error when enabled', () => {
+    // disabled by default (user dir) -> no load attempted
+    assert.strictEqual(pm.list().find((p) => p.id === 'broken').status, 'disabled');
+    // enabling it surfaces the crash as status:error, and the app survives
+    pm.setEnabled('broken', true);
     const b = pm.list().find((p) => p.id === 'broken');
     assert.strictEqual(b.status, 'error');
     assert.match(b.error, /boom on load/);
+    pm.setEnabled('broken', false);
   });
 
   await test('plugin provider answers chat', async () => {
@@ -398,6 +404,57 @@ async function test(name, fn) {
     pm2.scan();
     assert.strictEqual(pm2.list().find((p) => p.id === 'ollama').enabled, false);
     pm2.setEnabled('ollama', true);
+  });
+
+  console.log('\nApp lock & audit');
+  const { LockManager } = require('../shared/lock.cjs');
+
+  await test('PIN set / verify / change / clear (scrypt, no plaintext)', () => {
+    const lm = new LockManager(path.join(tmp, 'lock.json'));
+    assert.strictEqual(lm.isSet(), false);
+    assert.throws(() => lm.setPin('12'), /at least 4/);
+    lm.setPin('1234');
+    assert.strictEqual(lm.isSet(), true);
+    assert.strictEqual(lm.verify('1234'), true);
+    assert.strictEqual(lm.verify('0000'), false);
+    assert.throws(() => lm.changePin('9999', '5678'), /incorrect/);
+    lm.changePin('1234', '5678');
+    assert.strictEqual(lm.verify('5678'), true);
+    const raw = fs.readFileSync(path.join(tmp, 'lock.json'), 'utf8');
+    assert.ok(!raw.includes('5678'), 'PIN must never be stored in plaintext');
+    lm.clearPin();
+    assert.strictEqual(lm.isSet(), false);
+  });
+
+  await test('audit log records, reads newest-first, and clears', () => {
+    const lm = new LockManager(path.join(tmp, 'lock2.json'));
+    lm.audit('test.event', { a: 1 });
+    lm.audit('test.two');
+    const e = lm.readAudit();
+    assert.strictEqual(e.length, 2);
+    assert.strictEqual(e[0].event, 'test.two');
+    lm.clearAudit();
+    assert.strictEqual(lm.readAudit().length, 0);
+  });
+
+  await test('auto-lock minutes persist across instances', () => {
+    const f = path.join(tmp, 'lock3.json');
+    const lm = new LockManager(f);
+    lm.setAutoLock(10);
+    const lm2 = new LockManager(f);
+    assert.strictEqual(lm2.getAutoLock(), 10);
+  });
+
+  await test('user plugins default OFF, official default ON', () => {
+    const { PluginManager: PM } = require('../shared/plugins.cjs');
+    const offDir = path.join(tmp, 'offdir');
+    fs.mkdirSync(path.join(offDir, 'userplug'), { recursive: true });
+    fs.writeFileSync(path.join(offDir, 'userplug', 'plugin.json'), JSON.stringify({ id: 'userplug', name: 'U', version: '1', entry: 'index.cjs' }));
+    fs.writeFileSync(path.join(offDir, 'userplug', 'index.cjs'), 'module.exports={};');
+    const pm = new PM({ dirs: [path.join(__dirname, '..', 'plugins'), offDir], persistFile: path.join(tmp, 'p2.json') });
+    const list = pm.scan();
+    assert.strictEqual(list.find((p) => p.id === 'userplug').enabled, false, 'user plugin must default off');
+    assert.strictEqual(list.find((p) => p.id === 'ollama').enabled, true, 'official plugin defaults on');
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

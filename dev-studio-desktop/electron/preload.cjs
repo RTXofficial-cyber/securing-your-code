@@ -21,6 +21,17 @@ const studio = {
   roles: () => ipcRenderer.invoke('ai:roles'),
   ensemble: (payload) => ipcRenderer.invoke('ai:ensemble', payload),
 
+  // ---- app lock & audit ----
+  lockState: () => ipcRenderer.invoke('lock:state'),
+  lockSet: (pin) => ipcRenderer.invoke('lock:set', pin),
+  lockVerify: (pin) => ipcRenderer.invoke('lock:verify', pin),
+  lockChange: (oldPin, newPin) => ipcRenderer.invoke('lock:change', oldPin, newPin),
+  lockClear: () => ipcRenderer.invoke('lock:clear'),
+  lockNote: (kind) => ipcRenderer.invoke('lock:note', kind),
+  lockAutoLock: (minutes) => ipcRenderer.invoke('lock:autoLock', minutes),
+  auditRead: (limit) => ipcRenderer.invoke('audit:read', limit),
+  auditClear: () => ipcRenderer.invoke('audit:clear'),
+
   // ---- plugins ----
   plugins: () => ipcRenderer.invoke('plugins:list'),
   pluginsScan: () => ipcRenderer.invoke('plugins:scan'),
