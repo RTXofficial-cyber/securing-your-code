@@ -7,11 +7,16 @@ const { contextBridge, ipcRenderer } = require('electron');
 const studio = {
   // ---- app / environment ----
   appInfo: () => ipcRenderer.invoke('app:info'),
+  capabilities: () => ipcRenderer.invoke('app:capabilities'),
+  setPermission: (key, enabled) => ipcRenderer.invoke('app:setPermission', key, enabled),
   chooseWorkspace: () => ipcRenderer.invoke('workspace:choose'),
+  openWorkspace: () => ipcRenderer.invoke('shell:open'),
+  revealWorkspace: () => ipcRenderer.invoke('shell:reveal'),
 
   // ---- AI providers ----
   providers: () => ipcRenderer.invoke('providers:list'),
   setKey: (providerId, apiKey) => ipcRenderer.invoke('providers:setKey', providerId, apiKey),
+  testConnection: (providerId) => ipcRenderer.invoke('providers:test', providerId),
   chat: (payload) => ipcRenderer.invoke('ai:chat', payload),
 
   // ---- workspace files ----

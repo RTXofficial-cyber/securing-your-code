@@ -196,6 +196,61 @@ async function test(name, fn) {
     }
   });
 
+  console.log('\nStudio Agent v2 scaffolds');
+  await test('website intent writes a 3-file static site', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'build me a website' }]);
+    const acts = agent.parseActions(reply);
+    const files = acts.filter((a) => a.type === 'write_file').map((a) => a.path);
+    assert.deepStrictEqual(files.sort(), ['app.js', 'index.html', 'styles.css']);
+    assert.ok(acts.some((a) => a.type === 'run_command'), 'should verify with a command');
+  });
+
+  await test('api intent writes server.js and syntax-checks it', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'create a rest api' }]);
+    const acts = agent.parseActions(reply);
+    assert.ok(acts.some((a) => a.type === 'write_file' && a.path === 'server.js'));
+    assert.ok(acts.some((a) => a.type === 'run_command' && /node --check server\.js/.test(a.command)));
+  });
+
+  await test('python intent byte-compiles to verify', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'make a python server' }]);
+    const acts = agent.parseActions(reply);
+    assert.ok(acts.some((a) => a.type === 'write_file' && a.path === 'app.py'));
+    assert.ok(acts.some((a) => a.type === 'run_command' && /py_compile/.test(a.command)));
+  });
+
+  await test('cli intent runs the tool after writing it', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'write a cli tool' }]);
+    const acts = agent.parseActions(reply);
+    assert.ok(acts.some((a) => a.type === 'write_file' && a.path === 'cli.js'));
+    assert.ok(acts.filter((a) => a.type === 'run_command').length >= 2, 'expected help + real run');
+  });
+
+  await test('game and todo intents produce single-file apps', async () => {
+    const g = agent.parseActions(await providers.chat('builtin', null, [{ role: 'user', content: 'make a game' }]));
+    const t = agent.parseActions(await providers.chat('builtin', null, [{ role: 'user', content: 'make a todo app' }]));
+    assert.ok(g.some((a) => a.path === 'game.html'));
+    assert.ok(t.some((a) => a.path === 'todo.html'));
+  });
+
+  await test('scaffolded JS is syntactically valid (node --check)', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'build me a website' }]);
+    const acts = agent.parseActions(reply);
+    const results = await agent.executeActions(acts.filter((a) => a.type === 'write_file'), ws);
+    assert.ok(results.every((r) => r.ok));
+    const check = await agent.runShell('node --check app.js', tmp);
+    assert.strictEqual(check.code, 0, check.stderr);
+  });
+
+  await test('scaffolded python compiles', async () => {
+    const reply = await providers.chat('builtin', null, [{ role: 'user', content: 'make a python server' }]);
+    const acts = agent.parseActions(reply);
+    await agent.executeActions(acts.filter((a) => a.type === 'write_file'), ws);
+    const py = agent.IS_WIN ? 'py' : 'python3';
+    const check = await agent.runShell(`${py} -m py_compile app.py`, tmp);
+    assert.strictEqual(check.code, 0, check.stderr);
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

@@ -442,3 +442,77 @@ footer.foot { padding: 34px 0; border-top: 1px solid var(--line); display: flex;
   .chatpane { width: 340px; }
   .rail { width: 210px; }
 }
+
+/* ============================================================
+   SETUP PAGE
+   ============================================================ */
+.setup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+.setup-card {
+  border: 1px solid var(--line); border-radius: var(--r-md);
+  background: var(--bg); padding: 24px; display: flex; flex-direction: column; gap: 12px;
+}
+.setup-card h3 { font-family: var(--serif); font-weight: 400; font-size: 22px; letter-spacing: -0.015em; }
+.setup-card p { color: var(--muted); font-size: 13.5px; line-height: 1.6; }
+.setup-tag {
+  align-self: flex-start; font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--muted); border: 1px solid var(--line-strong); border-radius: 999px; padding: 3px 10px;
+}
+.cmdrow { display: flex; align-items: center; gap: 8px; }
+.cmdrow code {
+  flex: 1; font-family: var(--mono); font-size: 11.5px;
+  background: var(--bg-sunken); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 7px 10px; overflow-x: auto; white-space: nowrap;
+}
+.dim { color: var(--faint); font-size: 12px; }
+.prov-actions { display: flex; gap: 8px; margin-top: 12px; }
+.steps-cta { display: flex; gap: 12px; margin-top: 36px; flex-wrap: wrap; }
+
+/* ============================================================
+   CAPABILITIES / PERMISSIONS
+   ============================================================ */
+.cap-list { border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: var(--bg); }
+.cap-list.compact { border: none; }
+.cap-row {
+  display: flex; align-items: center; gap: 16px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+}
+.cap-row:last-child { border-bottom: none; }
+.cap-list.compact .cap-row { padding: 10px 0; }
+.cap-name { font-size: 13.5px; font-weight: 600; }
+.cap-detail { font-size: 12px; color: var(--muted); margin-top: 2px; line-height: 1.5; }
+
+/* ============================================================
+   STUDIO: rail nav, splitter, terminal chips
+   ============================================================ */
+.rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 10px 8px; border-bottom: 1px solid var(--side-line); }
+.rail-nav-btn {
+  display: flex; align-items: center; gap: 9px;
+  padding: 7px 10px; border-radius: var(--r-sm); border: 1px solid transparent;
+  background: transparent; color: var(--side-muted); font-size: 12.5px; cursor: pointer; text-align: left;
+  transition: all .15s var(--ease);
+}
+.rail-nav-btn:hover { background: var(--side-hover); color: var(--side-ink); }
+.rail-nav-btn.active { background: var(--side-ink); color: var(--side-bg); font-weight: 600; }
+
+.splitter {
+  height: 7px; flex-shrink: 0; cursor: row-resize;
+  background: var(--bg); border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+  display: grid; place-items: center;
+}
+.splitter span { width: 44px; height: 3px; border-radius: 2px; background: var(--line-strong); }
+.splitter:hover span { background: var(--ink); }
+
+.quick-chips { display: flex; gap: 6px; }
+.chip {
+  font-family: var(--mono); font-size: 10.5px; padding: 3px 9px;
+  border-radius: 999px; border: 1px solid #2a2a2a; background: transparent;
+  color: #9a9891; cursor: pointer; transition: all .15s var(--ease);
+}
+.chip:hover { border-color: #6a6862; color: #e8e6e1; }
+.term-btn { border-color: #2a2a2a; color: #9a9891; }
+.term-btn:hover { border-color: #6a6862; color: #e8e6e1; }
+
+/* clickable action pills */
+.act.clickable { cursor: pointer; }
+.act.clickable:hover { background: var(--bg-sunken); }
+.act-open { margin-left: auto; font-size: 10px; opacity: .7; }

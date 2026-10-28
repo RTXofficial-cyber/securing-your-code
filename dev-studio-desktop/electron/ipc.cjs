@@ -1,4 +1,4 @@
-const { app, dialog, ipcMain } = require('electron');
+const { app, dialog, ipcMain, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -7,13 +7,14 @@ const { Terminal } = require('./terminal.cjs');
 const providers = require('../shared/providers.cjs');
 const agent = require('../shared/agent.cjs');
 
-const state = { terminal: null, rootRef: null };
+const state = { terminal: null, rootRef: null, permissions: null };
 function getState() {
   return state;
 }
 
 function registerIpc(mainIpc, { workspace, getWindow }) {
   state.rootRef = { value: workspace };
+  state.permissions = { runCommands: true, writeFiles: true };
   const ws = makeWorkspaceHelpers(state.rootRef);
 
   // Read keys from an env file sitting next to the app (or in userData),
@@ -43,6 +44,37 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     packaged: app.isPackaged,
     envFileUsed: envCandidates.find((f) => fs.existsSync(f)) || null
   }));
+
+  // ---------- capabilities & permissions ----------
+  mainIpc.handle('app:capabilities', () => ({
+    ok: true,
+    workspace: state.rootRef.value,
+    permissions: { ...state.permissions },
+    features: [
+      { id: 'files', name: 'Read & write files inside the workspace', detail: 'Path-traversal is blocked; the agent can never touch files outside it.', toggle: null },
+      { id: 'writeFiles', name: 'Agent creates & edits files', detail: 'Turn off to make the agent read-only.', toggle: 'writeFiles' },
+      { id: 'runCommands', name: 'Agent runs shell commands', detail: 'The interactive terminal always works; this gates the AI.', toggle: 'runCommands' },
+      { id: 'network', name: 'Send prompts to the provider you pick', detail: 'Keys go only to that provider. The built-in engine needs no network.', toggle: null },
+      { id: 'external', name: 'Open links & folders outside the app', detail: 'Used by "Open workspace" and provider help links.', toggle: null }
+    ]
+  }));
+
+  mainIpc.handle('app:setPermission', (_e, key, enabled) => {
+    if (!(key in state.permissions)) return { ok: false, error: 'Unknown permission: ' + key };
+    state.permissions[key] = Boolean(enabled);
+    return { ok: true, permissions: { ...state.permissions } };
+  });
+
+  // ---------- open / reveal workspace in the OS file manager ----------
+  mainIpc.handle('shell:open', async () => {
+    const err = await shell.openPath(state.rootRef.value);
+    return { ok: !err, error: err || null };
+  });
+
+  mainIpc.handle('shell:reveal', async () => {
+    shell.showItemInFolder(state.rootRef.value);
+    return { ok: true };
+  });
 
   // ---------- workspace selection ----------
   mainIpc.handle('workspace:choose', async () => {
@@ -86,6 +118,24 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return { ok: true, persisted: true, ready: Boolean(apiKey) };
   });
 
+  // ---------- provider connectivity test (real call, no agent actions) ----------
+  mainIpc.handle('providers:test', async (_e, providerId) => {
+    const p = providers.PROVIDERS.find((x) => x.id === providerId);
+    if (!p) return { ok: false, error: 'Unknown provider' };
+    if (p.keyEnv && !providers.getKey(p.keyEnv)) {
+      return { ok: false, code: 'NO_KEY', error: 'No API key set yet — paste one above first.' };
+    }
+    const t0 = Date.now();
+    try {
+      const reply = await providers.chat(providerId, null, [
+        { role: 'user', content: 'Reply with exactly one word: ok' }
+      ]);
+      return { ok: true, latencyMs: Date.now() - t0, sample: String(reply).slice(0, 140) };
+    } catch (err) {
+      return { ok: false, latencyMs: Date.now() - t0, error: err.message };
+    }
+  });
+
   // ---------- chat + agent ----------
   mainIpc.handle('ai:chat', async (_e, payload) => {
     const { provider, model, messages, agentMode } = payload || {};
@@ -96,11 +146,21 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
       const full = agentMode ? [{ role: 'system', content: agent.SYSTEM_PROMPT }, ...messages] : messages;
       const reply = await providers.chat(provider, model, full);
       let actionResults = [];
+      let skipped = [];
       if (agentMode) {
-        const actions = agent.parseActions(reply);
+        let actions = agent.parseActions(reply);
+        // Honour the user's permission toggles before executing anything.
+        if (!state.permissions.writeFiles) {
+          skipped = skipped.concat(actions.filter((a) => a.type === 'write_file').map((a) => a.path));
+          actions = actions.filter((a) => a.type !== 'write_file');
+        }
+        if (!state.permissions.runCommands) {
+          skipped = skipped.concat(actions.filter((a) => a.type === 'run_command').map((a) => a.command));
+          actions = actions.filter((a) => a.type !== 'run_command');
+        }
         if (actions.length) actionResults = await agent.executeActions(actions, ws);
       }
-      return { ok: true, reply: agent.stripActions(reply), raw: reply, actionResults };
+      return { ok: true, reply: agent.stripActions(reply), raw: reply, actionResults, skipped };
     } catch (err) {
       return { ok: false, error: err.message, code: err.code || 'ERROR' };
     }

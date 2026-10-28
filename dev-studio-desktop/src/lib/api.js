@@ -46,6 +46,26 @@ const mock = {
     ];
   },
   setKey: async () => ({ ok: true, persisted: false }),
+  testConnection: async (id) => {
+    await sleep(500);
+    if (id === 'builtin') return { ok: true, latencyMs: 3, sample: 'ok' };
+    return { ok: false, code: 'NO_KEY', error: 'No API key set yet — paste one above first.' };
+  },
+  capabilities: async () => ({
+    ok: true,
+    workspace: '(browser preview)',
+    permissions: { runCommands: true, writeFiles: true },
+    features: [
+      { id: 'files', name: 'Read & write files inside the workspace', detail: 'Path-traversal is blocked.', toggle: null },
+      { id: 'writeFiles', name: 'Agent creates & edits files', detail: 'Turn off to make the agent read-only.', toggle: 'writeFiles' },
+      { id: 'runCommands', name: 'Agent runs shell commands', detail: 'The interactive terminal always works; this gates the AI.', toggle: 'runCommands' },
+      { id: 'network', name: 'Send prompts to the provider you pick', detail: 'Keys go only to that provider.', toggle: null },
+      { id: 'external', name: 'Open links & folders outside the app', detail: 'Used by "Open workspace" and help links.', toggle: null }
+    ]
+  }),
+  setPermission: async () => ({ ok: true, permissions: { runCommands: true, writeFiles: true } }),
+  openWorkspace: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  revealWorkspace: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   chat: async ({ messages }) => {
     await sleep(600);
     const last = messages[messages.length - 1]?.content || '';

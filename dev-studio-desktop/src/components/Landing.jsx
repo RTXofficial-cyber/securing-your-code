@@ -45,7 +45,7 @@ const STEPS = [
   { n: '3', h: 'Describe the software', p: 'Tell the agent what to build. It writes the files, runs them, and shows you the output. You steer.' }
 ];
 
-export default function Landing({ providers, info, theme, isDesktop, onToggleTheme, onOpen }) {
+export default function Landing({ providers, info, theme, isDesktop, onToggleTheme, onOpen, onSetup }) {
   const connected = providers.filter((p) => p.ready).length;
   const provList = providers.length
     ? providers
@@ -69,7 +69,7 @@ export default function Landing({ providers, info, theme, isDesktop, onToggleThe
         <div className="nav-links">
           <button className="nav-link" onClick={() => scroll('models')}>Models</button>
           <button className="nav-link" onClick={() => scroll('features')}>Features</button>
-          <button className="nav-link" onClick={() => scroll('start')}>Get started</button>
+          <button className="nav-link" onClick={onSetup}>Setup &amp; .exe</button>
         </div>
         <div className="nav-spacer" />
         <button className="icon-btn" onClick={onToggleTheme} title="Toggle theme">
@@ -94,7 +94,7 @@ export default function Landing({ providers, info, theme, isDesktop, onToggleThe
           </p>
           <div className="hero-cta">
             <button className="btn btn-solid btn-lg" onClick={onOpen}>Open the Studio</button>
-            <button className="btn btn-lg" onClick={() => scroll('start')}>How it works</button>
+            <button className="btn btn-lg" onClick={onSetup}>Setup, .exe &amp; permissions</button>
           </div>
           <div className="hero-note">
             {isDesktop
@@ -220,6 +220,10 @@ export default function Landing({ providers, info, theme, isDesktop, onToggleThe
               </div>
             ))}
           </div>
+          <div className="steps-cta">
+            <button className="btn" onClick={onSetup}>Open the full setup guide →</button>
+            <button className="btn btn-solid" onClick={onOpen}>Skip ahead — Open Studio</button>
+          </div>
         </div>
       </section>
 
@@ -241,6 +245,7 @@ export default function Landing({ providers, info, theme, isDesktop, onToggleThe
           <p>Open the Studio and let the agent build something in your workspace right now.</p>
           <div className="hero-cta">
             <button className="btn btn-solid btn-lg" onClick={onOpen}>Open Studio →</button>
+            <button className="btn btn-lg" onClick={onSetup}>Setup &amp; permissions</button>
           </div>
         </div>
       </div>
@@ -255,6 +260,11 @@ export default function Landing({ providers, info, theme, isDesktop, onToggleThe
         <span>{info?.platform === 'win32' ? 'Windows' : info?.platform || 'desktop'} {info?.arch || ''}</span>
         <span>·</span>
         <span>Built with Electron</span>
+        <span style={{ flex: 1 }} />
+        <button className="nav-link" onClick={() => scroll('models')}>Models</button>
+        <button className="nav-link" onClick={() => scroll('features')}>Features</button>
+        <button className="nav-link" onClick={onSetup}>Setup &amp; .exe</button>
+        <button className="nav-link" onClick={onOpen}>Open Studio</button>
       </footer>
     </div>
   );
