@@ -64,6 +64,35 @@ Keys are stored only on your machine and are sent only to the provider you
 select in the chat panel. With no keys at all, the built-in **Studio Agent v1**
 still works offline: it writes files, runs commands and shows the output.
 
+## Plugins (official extension API)
+
+Dev Studio ships with a real plugin system. A plugin is a folder containing:
+
+```
+my-plugin/
+  plugin.json    { "id", "name", "version", "entry", "description"?, "type"?, "enabledByDefault"? }
+  index.cjs      module exporting `provider` and/or `tools`
+```
+
+- **provider plugin** — adds a new AI connector:
+  `{ id, name, vendor?, keyEnv?, docs?, models:[{id,name}], chat(model, messages) }`
+- **tools plugin** — adds new agent actions the AI can emit:
+  `[{ name, description?, run(action, ctx) }]` with `ctx = { ws, runShell, workspace }`
+
+Plugin folders are loaded from `<app>/plugins` (official, shipped in the .exe)
+and `<userData>/plugins` (yours). Manage them in **Settings → Plugins**:
+enable/disable (persisted), test, rescan, and open your install folder.
+A plugin that throws on load is marked `error` and isolated — it can never
+crash the app.
+
+Shipped official plugins:
+
+| Plugin | Kind | What it adds |
+|---|---|---|
+| `ollama` | provider | local models via Ollama (no key, no internet) |
+| `openrouter` | provider | one key → hundreds of hosted models |
+| `git-tools` | tools | `git_init`, `git_status`, `git_commit`, `git_log` agent actions |
+
 ## Use your own AI
 
 Edit `shared/builtin.cjs` and replace the `chat(model, messages)` function with

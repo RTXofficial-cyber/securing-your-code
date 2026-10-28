@@ -85,8 +85,21 @@ async function executeActions(actions, ws) {
         case 'error':
           results.push({ type: 'error', ok: false, error: action.error });
           break;
-        default:
-          results.push({ type: action.type, ok: false, error: `Unknown action type: ${action.type}` });
+        default: {
+          // Plugin-registered agent tools: an action whose type matches a
+          // registered tool name is dispatched to that tool.
+          const tool = TOOLS.get(action.type);
+          if (tool) {
+            try {
+              const out = await tool.run(action, { ws, runShell, workspace: ws.root() });
+              results.push({ type: action.type, ok: out?.ok !== false, output: out?.output ?? out?.stdout ?? '', detail: out || null });
+            } catch (err) {
+              results.push({ type: action.type, ok: false, error: err.message });
+            }
+          } else {
+            results.push({ type: action.type, ok: false, error: `Unknown action type: ${action.type}` });
+          }
+        }
       }
     } catch (err) {
       results.push({ type: action.type, ok: false, error: err.message });
@@ -123,4 +136,54 @@ function tail(s) {
   return s.length > 20000 ? s.slice(-20000) : s;
 }
 
-module.exports = { SYSTEM_PROMPT, parseActions, stripActions, executeActions, runShell, IS_WIN };
+/* ------------------------------------------------------------------ */
+/* Plugin tool registry                                                */
+/* ------------------------------------------------------------------ */
+
+const TOOLS = new Map();
+
+/**
+ * Plugin API — register a new agent action.
+ * def: { name, description, run(action, ctx) => { ok, output } }
+ * ctx: { ws, runShell, workspace }
+ */
+function registerTool(def, pluginId) {
+  if (!def || typeof def.name !== 'string' || typeof def.run !== 'function') {
+    throw new Error('tool plugin must export { name, run(action, ctx) }');
+  }
+  TOOLS.set(def.name, { ...def, pluginId: pluginId || def.name });
+  return def.name;
+}
+
+function unregisterToolsByPlugin(pluginId) {
+  let n = 0;
+  for (const [name, t] of [...TOOLS]) {
+    if (t.pluginId === pluginId) { TOOLS.delete(name); n++; }
+  }
+  return n;
+}
+
+function listTools() {
+  return [...TOOLS.values()].map((t) => ({ name: t.name, description: t.description || '', pluginId: t.pluginId }));
+}
+
+function hasTool(name) {
+  return TOOLS.has(name);
+}
+
+/** System prompt + a live list of plugin-registered tools, so the AI knows they exist. */
+function systemPrompt() {
+  const tools = listTools();
+  if (!tools.length) return SYSTEM_PROMPT;
+  return (
+    SYSTEM_PROMPT +
+    '\n\nAdditional actions provided by installed plugins:\n' +
+    tools.map((t) => `- ${t.name}  ${t.description}`).join('\n') +
+    '\nEmit them exactly like the built-in actions, e.g. ```action:git_commit\n{"message":"add login"}\n```'
+  );
+}
+
+module.exports = {
+  SYSTEM_PROMPT, systemPrompt, parseActions, stripActions, executeActions, runShell, IS_WIN,
+  registerTool, unregisterToolsByPlugin, listTools, hasTool
+};

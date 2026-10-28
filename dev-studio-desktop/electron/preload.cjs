@@ -21,6 +21,13 @@ const studio = {
   roles: () => ipcRenderer.invoke('ai:roles'),
   ensemble: (payload) => ipcRenderer.invoke('ai:ensemble', payload),
 
+  // ---- plugins ----
+  plugins: () => ipcRenderer.invoke('plugins:list'),
+  pluginsScan: () => ipcRenderer.invoke('plugins:scan'),
+  pluginSetEnabled: (id, on) => ipcRenderer.invoke('plugins:setEnabled', id, on),
+  pluginTest: (id) => ipcRenderer.invoke('plugins:test', id),
+  pluginOpenFolder: (which) => ipcRenderer.invoke('plugins:openFolder', which),
+
   // ---- workspace files ----
   files: () => ipcRenderer.invoke('files:list'),
   readFile: (p) => ipcRenderer.invoke('files:read', p),

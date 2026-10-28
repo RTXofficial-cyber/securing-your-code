@@ -197,8 +197,37 @@ function listProviders() {
     keyEnv: p.keyEnv,
     docs: p.docs || null,
     models: p.models,
-    ready: p.keyEnv ? Boolean(getKey(p.keyEnv)) : true
+    ready: p.keyEnv ? Boolean(getKey(p.keyEnv)) : true,
+    plugin: Boolean(p.pluginId)
   }));
+}
+
+/**
+ * Plugin API — lets a plugin register a new AI provider at runtime.
+ * Re-registering the same id replaces it (hot reload).
+ */
+function registerProvider(provider, pluginId) {
+  if (!provider || typeof provider.id !== 'string' || typeof provider.chat !== 'function') {
+    throw new Error('provider plugin must export { id, chat(model, messages) }');
+  }
+  if (!Array.isArray(provider.models) || provider.models.length === 0) {
+    throw new Error(`provider plugin "${provider.id}" must export a non-empty models array`);
+  }
+  const wrapped = { ...provider, pluginId: pluginId || provider.id };
+  const i = PROVIDERS.findIndex((p) => p.id === wrapped.id);
+  if (i >= 0) PROVIDERS[i] = wrapped;
+  else PROVIDERS.push(wrapped);
+  return wrapped;
+}
+
+function unregisterProvider(id) {
+  const i = PROVIDERS.findIndex((p) => p.id === id);
+  if (i >= 0) { PROVIDERS.splice(i, 1); return true; }
+  return false;
+}
+
+function hasProvider(id) {
+  return PROVIDERS.some((p) => p.id === id);
 }
 
 async function chat(providerId, model, messages) {
@@ -213,4 +242,7 @@ async function chat(providerId, model, messages) {
   return p.chat(model, messages);
 }
 
-module.exports = { PROVIDERS, listProviders, chat, getKey, setKey, loadKeysFromEnvFile, envFilePath: path };
+module.exports = {
+  PROVIDERS, listProviders, chat, getKey, setKey, loadKeysFromEnvFile,
+  registerProvider, unregisterProvider, hasProvider, envFilePath: path
+};

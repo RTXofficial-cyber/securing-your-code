@@ -7,6 +7,7 @@ const { Terminal } = require('./terminal.cjs');
 const providers = require('../shared/providers.cjs');
 const agent = require('../shared/agent.cjs');
 const orchestrator = require('../shared/orchestrator.cjs');
+const { PluginManager } = require('../shared/plugins.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null };
 function getState() {
@@ -27,6 +28,35 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     path.join(__dirname, '..', 'dev-studio.env')
   ];
   for (const f of envCandidates) providers.loadKeysFromEnvFile(f);
+
+  // ---------- plugin system ----------
+  const userPluginDir = path.join(app.getPath('userData'), 'plugins');
+  fs.mkdirSync(userPluginDir, { recursive: true });
+  const pluginManager = new PluginManager({
+    dirs: [path.join(__dirname, '..', 'plugins'), userPluginDir],
+    persistFile: path.join(app.getPath('userData'), 'plugins.json')
+  });
+  pluginManager.scan();
+  pluginManager.loadAll();
+  state.pluginManager = pluginManager;
+
+  mainIpc.handle('plugins:list', () => ({ ok: true, plugins: pluginManager.list(), dirs: pluginManager.dirs }));
+  mainIpc.handle('plugins:scan', () => {
+    pluginManager.scan();
+    pluginManager.loadAll();
+    return { ok: true, plugins: pluginManager.list() };
+  });
+  mainIpc.handle('plugins:setEnabled', (_e, id, on) => {
+    const r = pluginManager.setEnabled(id, on);
+    return r;
+  });
+  mainIpc.handle('plugins:test', (_e, id) => pluginManager.test(id));
+  mainIpc.handle('plugins:openFolder', async (_e, which) => {
+    const dir = which === 'user' ? userPluginDir : pluginManager.dirs[0];
+    fs.mkdirSync(dir, { recursive: true });
+    const err = await shell.openPath(dir);
+    return { ok: !err, error: err || null, dir };
+  });
 
   const send = (channel, payload) => {
     const w = getWindow();
@@ -144,7 +174,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
       return { ok: false, error: 'messages array is required' };
     }
     try {
-      const full = agentMode ? [{ role: 'system', content: agent.SYSTEM_PROMPT }, ...messages] : messages;
+      const full = agentMode ? [{ role: 'system', content: agent.systemPrompt() }, ...messages] : messages;
       const reply = await providers.chat(provider, model, full);
       let actionResults = [];
       let skipped = [];

@@ -300,6 +300,106 @@ async function test(name, fn) {
     assert.strictEqual(r.steps.length, 4);
   });
 
+  console.log('\nPlugin system');
+  const { PluginManager } = require('../shared/plugins.cjs');
+  const officialDir = path.join(__dirname, '..', 'plugins');
+  const userDir = path.join(tmp, 'user-plugins');
+  fs.mkdirSync(userDir, { recursive: true });
+
+  // a user plugin that adds a provider + a tool
+  fs.mkdirSync(path.join(userDir, 'demo'), { recursive: true });
+  fs.writeFileSync(path.join(userDir, 'demo', 'plugin.json'), JSON.stringify({
+    id: 'demo', name: 'Demo plugin', version: '1.0.0', entry: 'index.cjs', type: 'bundle'
+  }));
+  fs.writeFileSync(path.join(userDir, 'demo', 'index.cjs'), `
+    module.exports = {
+      provider: {
+        id: 'demo-ai', name: 'Demo AI', vendor: 'Demo', keyEnv: null,
+        models: [{ id: 'demo-1', name: 'Demo 1' }],
+        async chat() { return 'demo reply'; }
+      },
+      tools: [{ name: 'demo_tool', description: 'demo', async run() { return { ok: true, output: 'tool ran' }; } }]
+    };
+  `);
+
+  // a deliberately broken plugin — must be isolated, never fatal
+  fs.mkdirSync(path.join(userDir, 'broken'), { recursive: true });
+  fs.writeFileSync(path.join(userDir, 'broken', 'plugin.json'), JSON.stringify({
+    id: 'broken', name: 'Broken', version: '1.0.0', entry: 'index.cjs'
+  }));
+  fs.writeFileSync(path.join(userDir, 'broken', 'index.cjs'), 'throw new Error("boom on load");');
+
+  const pm = new PluginManager({ dirs: [officialDir, userDir], persistFile: path.join(tmp, 'plugins.json') });
+
+  await test('scan discovers official + user plugins', () => {
+    const list = pm.scan();
+    const ids = list.map((p) => p.id).sort();
+    assert.deepStrictEqual(ids, ['broken', 'demo', 'git-tools', 'ollama', 'openrouter']);
+  });
+
+  await test('loadAll registers plugin providers and tools', () => {
+    pm.loadAll();
+    assert.ok(providers.hasProvider('ollama'), 'ollama provider registered');
+    assert.ok(providers.hasProvider('openrouter'), 'openrouter provider registered');
+    assert.ok(providers.hasProvider('demo-ai'), 'demo provider registered');
+    assert.ok(agent.hasTool('git_status'), 'git tools registered');
+    assert.ok(agent.hasTool('demo_tool'), 'demo tool registered');
+  });
+
+  await test('broken plugin is isolated with status error', () => {
+    const b = pm.list().find((p) => p.id === 'broken');
+    assert.strictEqual(b.status, 'error');
+    assert.match(b.error, /boom on load/);
+  });
+
+  await test('plugin provider answers chat', async () => {
+    const r = await providers.chat('demo-ai', null, [{ role: 'user', content: 'hi' }]);
+    assert.strictEqual(r, 'demo reply');
+  });
+
+  await test('plugin tool runs as an agent action', async () => {
+    const res = await agent.executeActions([{ type: 'demo_tool' }], ws);
+    assert.strictEqual(res[0].ok, true);
+    assert.match(res[0].output, /tool ran/);
+  });
+
+  await test('git tools work end to end', async () => {
+    const init = await agent.executeActions([{ type: 'git_init' }], ws);
+    assert.strictEqual(init[0].ok, true, init[0].output);
+    await agent.runShell('git config user.email "test@dev.studio" && git config user.name "Test"', tmp);
+    ws.write('tracked.txt', 'x');
+    const st = await agent.executeActions([{ type: 'git_status' }], ws);
+    assert.strictEqual(st[0].ok, true, st[0].output);
+    assert.match(st[0].output, /tracked\.txt/);
+    const cm = await agent.executeActions([{ type: 'git_commit', message: 'plugin test' }], ws);
+    assert.strictEqual(cm[0].ok, true, cm[0].output);
+  });
+
+  await test('systemPrompt advertises plugin tools', () => {
+    const sp = agent.systemPrompt();
+    assert.match(sp, /git_commit/);
+    assert.match(sp, /demo_tool/);
+  });
+
+  await test('disabling a plugin unregisters it', () => {
+    const r = pm.setEnabled('demo', false);
+    assert.strictEqual(r.ok, true);
+    assert.ok(!providers.hasProvider('demo-ai'), 'provider removed');
+    assert.ok(!agent.hasTool('demo_tool'), 'tool removed');
+    const v = pm.list().find((p) => p.id === 'demo');
+    assert.strictEqual(v.status, 'disabled');
+    pm.setEnabled('demo', true);
+    assert.ok(providers.hasProvider('demo-ai'), 'provider back after re-enable');
+  });
+
+  await test('enable state persists to disk', () => {
+    pm.setEnabled('ollama', false);
+    const pm2 = new PluginManager({ dirs: [officialDir, userDir], persistFile: path.join(tmp, 'plugins.json') });
+    pm2.scan();
+    assert.strictEqual(pm2.list().find((p) => p.id === 'ollama').enabled, false);
+    pm2.setEnabled('ollama', true);
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

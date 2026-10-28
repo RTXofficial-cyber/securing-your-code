@@ -1,0 +1,9 @@
+{
+  "id": "openrouter",
+  "name": "OpenRouter",
+  "version": "1.0.0",
+  "description": "One API key for hundreds of hosted models (Claude, GPT, Gemini, Llama, DeepSeek and more) via OpenRouter.",
+  "type": "provider",
+  "entry": "index.cjs",
+  "enabledByDefault": true
+}

@@ -45,6 +45,7 @@
       "dist/**/*",
       "electron/**/*",
       "shared/**/*",
+      "plugins/**/*",
       "package.json"
     ],
     "npmRebuild": false,

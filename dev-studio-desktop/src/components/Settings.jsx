@@ -10,6 +10,8 @@ export default function Settings({ info, providers, workspace, focusProvider, on
   const [testing, setTesting] = useState(false);
   const [testRes, setTestRes] = useState(null);
   const [caps, setCaps] = useState(null);
+  const [plugins, setPlugins] = useState(null);
+  const [pluginMsg, setPluginMsg] = useState({});
 
   const current = providers.find((p) => p.id === selected);
 
@@ -17,7 +19,32 @@ export default function Settings({ info, providers, workspace, focusProvider, on
 
   useEffect(() => {
     api.capabilities().then(setCaps).catch(() => {});
+    api.plugins().then((r) => r?.ok && setPlugins(r)).catch(() => {});
   }, []);
+
+  const togglePlugin = async (id, on) => {
+    const r = await api.pluginSetEnabled(id, on);
+    if (r?.ok) {
+      setPlugins((p) => ({ ...p, plugins: p.plugins.map((x) => (x.id === id ? r.plugin : x)) }));
+      onSaved?.();
+    } else setPluginMsg((m) => ({ ...m, [id]: { ok: false, text: r?.error } }));
+  };
+
+  const testPlugin = async (id) => {
+    setPluginMsg((m) => ({ ...m, [id]: { pending: true } }));
+    const r = await api.pluginTest(id);
+    setPluginMsg((m) => ({
+      ...m,
+      [id]: r?.ok
+        ? { ok: true, text: r.kind === 'tools' ? `✓ tools registered: ${r.tools.join(', ')}` : `✓ provider responded: “${r.sample}”` }
+        : { ok: false, text: `✗ ${r?.error}` }
+    }));
+  };
+
+  const rescan = async () => {
+    const r = await api.pluginsScan();
+    if (r?.ok) { setPlugins(r); onSaved?.(); }
+  };
 
   const reloadCaps = async () => setCaps(await api.capabilities().catch(() => caps));
 
@@ -148,6 +175,56 @@ export default function Settings({ info, providers, workspace, focusProvider, on
                 ))}
               </div>
             ) : <div className="hint">Loading…</div>}
+          </div>
+
+          {/* ---- plugins ---- */}
+          <div className="field">
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Plugins</span>
+              <span style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm" onClick={rescan}>⟳ rescan</button>
+                <button className="btn btn-sm" onClick={async () => { const r = await api.pluginOpenFolder('user'); if (!r?.ok) alert(r?.error || r?.dir || 'Unavailable here'); }}>＋ install folder</button>
+              </span>
+            </label>
+            {plugins ? (
+              <div className="cap-list compact">
+                {plugins.plugins.map((p) => (
+                  <div className="cap-row" key={p.id}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div className="cap-name">
+                        {p.name} <span style={{ color: 'var(--faint)', fontWeight: 400 }}>v{p.version}</span>
+                        {p.official && <span className="tag on" style={{ marginLeft: 6 }}>official</span>}
+                        <span className={`tag ${p.status === 'loaded' ? 'on' : 'off'}`} style={{ marginLeft: 4 }}>{p.status}</span>
+                      </div>
+                      <div className="cap-detail">{p.description}</div>
+                      <div className="cap-detail" style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>
+                        {p.provides.provider ? `provider: ${p.provides.provider.id}` : ''}
+                        {p.provides.provider && p.provides.tools.length ? ' · ' : ''}
+                        {p.provides.tools.length ? `tools: ${p.provides.tools.join(', ')}` : ''}
+                      </div>
+                      {p.error && <div className="cap-detail" style={{ color: 'var(--bad)' }}>{p.error}</div>}
+                      {pluginMsg[p.id] && !pluginMsg[p.id].pending && (
+                        <div className="cap-detail" style={{ color: pluginMsg[p.id].ok ? 'var(--ok)' : 'var(--bad)' }}>{pluginMsg[p.id].text}</div>
+                      )}
+                    </div>
+                    <button className="btn btn-sm" disabled={!p.enabled || pluginMsg[p.id]?.pending} onClick={() => testPlugin(p.id)}>
+                      {pluginMsg[p.id]?.pending ? '…' : 'test'}
+                    </button>
+                    <label className="switch">
+                      <input type="checkbox" checked={p.enabled} onChange={(e) => togglePlugin(p.id, e.target.checked)} />
+                      <span>{p.enabled ? 'on' : 'off'}</span>
+                    </label>
+                  </div>
+                ))}
+                {plugins.plugins.length === 0 && (
+                  <div className="cap-row"><div className="cap-detail">No plugins found. Drop a folder with plugin.json into the install folder above.</div></div>
+                )}
+              </div>
+            ) : <div className="hint">Loading…</div>}
+            <div className="hint">
+              A plugin is a folder with <code>plugin.json</code> + a module that exports <code>provider</code> and/or <code>tools</code>.
+              Official plugins ship inside the app; yours live in the install folder. A broken plugin is isolated, never fatal.
+            </div>
           </div>
 
           {/* ---- workspace ---- */}

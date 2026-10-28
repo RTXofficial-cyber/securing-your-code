@@ -98,6 +98,19 @@ const mock = {
       summary: `Browser preview of the AI-team pipeline for: "${userText}". Run the desktop app to have the real team research, plan, code and review in your workspace.`
     };
   },
+  plugins: async () => ({
+    ok: true,
+    dirs: ['(bundled plugins)', '(user plugins)'],
+    plugins: [
+      { id: 'ollama', name: 'Ollama (local models)', version: '1.0.0', type: 'provider', enabled: true, status: 'loaded', official: true, description: 'Local models on localhost:11434 — no key, no internet.', provides: { provider: { id: 'ollama', name: 'Ollama' }, tools: [] } },
+      { id: 'openrouter', name: 'OpenRouter', version: '1.0.0', type: 'provider', enabled: true, status: 'loaded', official: true, description: 'One key for hundreds of hosted models.', provides: { provider: { id: 'openrouter', name: 'OpenRouter' }, tools: [] } },
+      { id: 'git-tools', name: 'Git tools', version: '1.0.0', type: 'tools', enabled: true, status: 'loaded', official: true, description: 'Agent actions: git_init, git_status, git_commit, git_log.', provides: { provider: null, tools: ['git_init', 'git_status', 'git_commit', 'git_log'] } }
+    ]
+  }),
+  pluginsScan: async () => mock.plugins(),
+  pluginSetEnabled: async () => ({ ok: true }),
+  pluginTest: async (id) => ({ ok: true, kind: id === 'git-tools' ? 'tools' : 'provider', sample: 'ok', tools: ['git_init', 'git_status', 'git_commit', 'git_log'] }),
+  pluginOpenFolder: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   files: async () => ({ ok: true, tree: mockTree, workspace: '(browser preview)' }),
   readFile: async (p) => ({ ok: true, content: `// ${p}\n// Preview content — desktop app reads real files.\n` }),
   writeFile: async () => ({ ok: true }),
