@@ -75,6 +75,29 @@ const mock = {
       actionResults: []
     };
   },
+  roles: async () => ({
+    ok: true,
+    roles: [
+      { id: 'research', label: 'Researcher', preferred: 'perplexity', icon: '⌕' },
+      { id: 'plan', label: 'Architect', preferred: 'anthropic', icon: '⌗' },
+      { id: 'code', label: 'Coder', preferred: 'openai', icon: '⌨' },
+      { id: 'review', label: 'Reviewer', preferred: 'anthropic', icon: '✓' }
+    ]
+  }),
+  ensemble: async ({ userText }) => {
+    await sleep(900);
+    return {
+      ok: true,
+      steps: [
+        { role: 'research', label: 'Researcher', icon: '⌕', providerId: 'builtin', providerName: 'Dev Studio AI', ok: true, latencyMs: 120, output: '(browser preview) Zero-dependency approach recommended; verify by running.' },
+        { role: 'plan', label: 'Architect', icon: '⌗', providerId: 'builtin', providerName: 'Dev Studio AI', ok: true, latencyMs: 140, output: '(browser preview) 1. write files  2. run to verify  3. review.' },
+        { role: 'code', label: 'Coder', icon: '⌨', providerId: 'builtin', providerName: 'Dev Studio AI', ok: true, latencyMs: 200, output: '(browser preview) code step — live only in the desktop app.' },
+        { role: 'review', label: 'Reviewer', icon: '✓', providerId: 'builtin', providerName: 'Dev Studio AI', ok: true, latencyMs: 90, output: 'APPROVED (browser preview).' }
+      ],
+      actionResults: [],
+      summary: `Browser preview of the AI-team pipeline for: "${userText}". Run the desktop app to have the real team research, plan, code and review in your workspace.`
+    };
+  },
   files: async () => ({ ok: true, tree: mockTree, workspace: '(browser preview)' }),
   readFile: async (p) => ({ ok: true, content: `// ${p}\n// Preview content — desktop app reads real files.\n` }),
   writeFile: async () => ({ ok: true }),

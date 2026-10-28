@@ -258,11 +258,86 @@ function writeAll(obj) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Team-role responses (used when this engine fills a pipeline role)  */
+/* ------------------------------------------------------------------ */
+
+function detectRole(messages) {
+  for (const m of messages || []) {
+    if (m.role === 'system') {
+      const hit = /ROLE:(\w+)/.exec(m.content || '');
+      if (hit) return hit[1];
+    }
+  }
+  return null;
+}
+
+function intentOf(text) {
+  if (/(static site|website|landing|web ?page|portfolio|homepage)/.test(text)) return 'site';
+  if (/python|flask|django|\bpy\b/.test(text)) return 'python';
+  if (/\bapi\b|backend|rest|server|http endpoint|microservice/.test(text)) return 'api';
+  if (/\bcli\b|command line|command-line tool|argparse|terminal app/.test(text)) return 'cli';
+  if (/game|play|snake|reflex|arcade/.test(text)) return 'game';
+  if (/todo|task|checklist|kanban/.test(text)) return 'todo';
+  return 'script';
+}
+
+const ROLE_FACTS = {
+  site: ['- Zero-dependency static site: plain HTML + CSS + vanilla JS; no build step.\n- Serve locally with a static file server; keep assets relative so it opens from disk too.\n- Pitfall: absolute paths break when served from a sub-folder — use relative URLs.'],
+  api: ['- Node\'s built-in http module needs no dependencies; parse URLs with new URL().\n- Always set Content-Type and status codes; return JSON errors as JSON.\n- Pitfall: forgetting to end() the response hangs the client.'],
+  python: ['- Python stdlib http.server is dependency-free and fine for local tools.\n- Verify with py_compile before running.\n- Pitfall: bind 127.0.0.1 for local tools, not 0.0.0.0, unless sharing.'],
+  cli: ['- Parse process.argv by hand for zero deps; support --help and exit codes.\n- Pitfall: reading args[++i] without a bounds check crashes on a missing value.'],
+  game: ['- Single-file HTML canvas/DOM game; requestAnimationFrame for loops.\n- Pitfall: attach listeners once; guard against double-start timers.'],
+  todo: ['- Persist with localStorage; store JSON, re-render on every mutation.\n- Pitfall: escaping user text — build nodes with textContent, not innerHTML.'],
+  script: ['- Keep it a single zero-dependency file so it runs anywhere Node runs.']
+};
+
+function researchOffline(text) {
+  const k = intentOf(text);
+  return [
+    '(Offline research — no web access; these are the reliable zero-dependency facts for this class of project.)',
+    ...(ROLE_FACTS[k] || ROLE_FACTS.script)
+  ].join('\n');
+}
+
+function planOffline(text) {
+  const k = intentOf(text);
+  const names = {
+    site: ['index.html — markup & sections', 'styles.css — monochrome styling', 'app.js — interactivity, then node --check app.js'],
+    api: ['server.js — http server with /, /health, /api/hello', 'verify with node --check server.js'],
+    python: ['app.py — stdlib HTTP server', 'verify with py -m py_compile / python3 -m py_compile'],
+    cli: ['cli.js — flag parsing + --help', 'run node cli.js --help then a real invocation'],
+    game: ['game.html — single-file game', 'open in a browser to verify'],
+    todo: ['todo.html — single-file app with localStorage', 'open in a browser to verify'],
+    script: ['hello.js — the script', 'run it with node to verify']
+  };
+  return ['Implementation plan:', ...(names[k] || names.script)].map((l, i) => (i === 0 ? l : `${i}. ${l}`)).join('\n');
+}
+
+function reviewOffline() {
+  return [
+    'APPROVED (offline review pass).',
+    '1. Re-run the verification command after every edit — the run log is your source of truth.',
+    '2. Keep files dependency-free so the project runs on any machine without install steps.',
+    '3. Confirm inputs/args have fallbacks so nothing crashes on empty input.',
+    '',
+    'Re-verifying the workspace now:',
+    run(IS_WIN ? 'dir' : 'ls -la')
+  ].join('\n');
+}
+
+
+/* ------------------------------------------------------------------ */
 /* Intent routing                                                      */
 /* ------------------------------------------------------------------ */
 
 async function chat(model, messages) {
   const text = lastUser(messages).toLowerCase();
+
+  // When filling a team role in the ensemble pipeline, answer as that role.
+  const role = detectRole(messages);
+  if (role === 'research') return researchOffline(text);
+  if (role === 'plan') return planOffline(text);
+  if (role === 'review') return reviewOffline();
 
   if (/(static site|website|landing|web ?page|portfolio|homepage)/.test(text)) {
     return [

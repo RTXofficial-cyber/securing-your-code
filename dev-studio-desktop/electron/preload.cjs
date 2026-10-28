@@ -18,6 +18,8 @@ const studio = {
   setKey: (providerId, apiKey) => ipcRenderer.invoke('providers:setKey', providerId, apiKey),
   testConnection: (providerId) => ipcRenderer.invoke('providers:test', providerId),
   chat: (payload) => ipcRenderer.invoke('ai:chat', payload),
+  roles: () => ipcRenderer.invoke('ai:roles'),
+  ensemble: (payload) => ipcRenderer.invoke('ai:ensemble', payload),
 
   // ---- workspace files ----
   files: () => ipcRenderer.invoke('files:list'),

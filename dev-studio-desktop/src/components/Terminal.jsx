@@ -9,7 +9,7 @@ function shortCwd(cwd) {
   return parts.length > 2 ? '…' + parts.slice(-2).join('/') : cwd;
 }
 
-export default function TerminalPane({ cwd, platform, onChanged }) {
+export default function TerminalPane({ cwd, platform, onChanged, onHide }) {
   const hostRef = useRef(null);
   const termRef = useRef(null);
   const sendRef = useRef(null);
@@ -154,6 +154,7 @@ export default function TerminalPane({ cwd, platform, onChanged }) {
         </div>
         <span className="term-hint">{busy ? 'running…' : !connected ? 'connecting…' : lastExit === null || lastExit === 0 ? 'ready' : `exit ${lastExit}`}</span>
         <button className="btn btn-sm term-btn" onClick={() => { termRef.current?.clear(); termRef.current?.focus(); }}>Clear</button>
+        {onHide && <button className="btn btn-sm term-btn" onClick={onHide} title="Hide terminal">—</button>}
       </div>
       <div className="term-body" ref={hostRef} />
     </div>

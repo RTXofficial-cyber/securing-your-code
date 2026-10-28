@@ -6,6 +6,7 @@ const { makeWorkspaceHelpers } = require('./workspace.cjs');
 const { Terminal } = require('./terminal.cjs');
 const providers = require('../shared/providers.cjs');
 const agent = require('../shared/agent.cjs');
+const orchestrator = require('../shared/orchestrator.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null };
 function getState() {
@@ -163,6 +164,25 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
       return { ok: true, reply: agent.stripActions(reply), raw: reply, actionResults, skipped };
     } catch (err) {
       return { ok: false, error: err.message, code: err.code || 'ERROR' };
+    }
+  });
+
+  // ---------- ensemble / AI team ----------
+  mainIpc.handle('ai:roles', () => ({ ok: true, roles: orchestrator.ROLES }));
+
+  mainIpc.handle('ai:ensemble', async (_e, payload) => {
+    const { userText, overrides } = payload || {};
+    if (!userText || typeof userText !== 'string') return { ok: false, error: 'userText is required' };
+    try {
+      const r = await orchestrator.runEnsemble({
+        userText,
+        overrides,
+        ws,
+        permissions: state.permissions
+      });
+      return { ok: true, ...r };
+    } catch (err) {
+      return { ok: false, error: err.message };
     }
   });
 

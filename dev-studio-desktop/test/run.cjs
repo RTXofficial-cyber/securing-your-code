@@ -12,6 +12,7 @@ const agent = require('../shared/agent.cjs');
 const providers = require('../shared/providers.cjs');
 const { makeWorkspaceHelpers } = require('../electron/workspace.cjs');
 const { Terminal } = require('../electron/terminal.cjs');
+const orchestrator = require('../shared/orchestrator.cjs');
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'ds-test-'));
 const ws = makeWorkspaceHelpers({ value: tmp });
@@ -249,6 +250,54 @@ async function test(name, fn) {
     const py = agent.IS_WIN ? 'py' : 'python3';
     const check = await agent.runShell(`${py} -m py_compile app.py`, tmp);
     assert.strictEqual(check.code, 0, check.stderr);
+  });
+
+  console.log('\nEnsemble / AI team');
+  await test('exposes the four team roles', () => {
+    assert.deepStrictEqual(orchestrator.ROLES.map((r) => r.id), ['research', 'plan', 'code', 'review']);
+  });
+
+  await test('role provider falls back to builtin when nothing is connected', () => {
+    providers.setKey('OPENAI_API_KEY', '');
+    providers.setKey('PERPLEXITY_API_KEY', '');
+    const p = orchestrator.resolveProvider('research', {});
+    assert.strictEqual(p.id, 'builtin');
+  });
+
+  await test('role provider honours an explicit override when connected', () => {
+    providers.setKey('GROQ_API_KEY', 'gsk_test');
+    const p = orchestrator.resolveProvider('code', { code: 'groq' });
+    assert.strictEqual(p.id, 'groq');
+    providers.setKey('GROQ_API_KEY', '');
+  });
+
+  await test('projectContext includes tree and file contents', () => {
+    ws.write('ctx-probe.js', 'console.log(1);');
+    const ctx = orchestrator.projectContext(ws);
+    assert.match(ctx, /FILE TREE/);
+    assert.match(ctx, /ctx-probe\.js/);
+    assert.match(ctx, /console\.log\(1\)/);
+  });
+
+  await test('offline team run completes all four steps and writes code', async () => {
+    const r = await orchestrator.runEnsemble({ userText: 'build me a website', ws });
+    assert.strictEqual(r.steps.length, 4);
+    assert.ok(r.steps.every((s) => s.ok), JSON.stringify(r.steps.map((s) => s.error)));
+    assert.deepStrictEqual(r.steps.map((s) => s.role), ['research', 'plan', 'code', 'review']);
+    assert.ok(r.actionResults.some((a) => a.type === 'write_file' && a.ok), 'coder should have written files');
+    assert.ok(r.actionResults.some((a) => a.type === 'run_command'), 'team should verify by running');
+    assert.ok(r.summary.length > 0);
+  });
+
+  await test('permissions gate the team coder', async () => {
+    const r = await orchestrator.runEnsemble({
+      userText: 'build me a website',
+      ws,
+      permissions: { runCommands: false, writeFiles: false }
+    });
+    const mutating = r.actionResults.filter((a) => a.type === 'write_file' || a.type === 'run_command');
+    assert.strictEqual(mutating.length, 0, 'no writes/runs should execute when blocked');
+    assert.strictEqual(r.steps.length, 4);
   });
 
   fs.rmSync(tmp, { recursive: true, force: true });

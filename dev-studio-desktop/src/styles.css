@@ -516,3 +516,91 @@ footer.foot { padding: 34px 0; border-top: 1px solid var(--line); display: flex;
 .act.clickable { cursor: pointer; }
 .act.clickable:hover { background: var(--bg-sunken); }
 .act-open { margin-left: auto; font-size: 10px; opacity: .7; }
+
+/* ============================================================
+   VS CODE-STYLE CHROME: activity bar, tabs, status bar, splitters
+   ============================================================ */
+.studio { padding-bottom: 26px; position: relative; }
+
+.activitybar {
+  width: 44px; flex-shrink: 0; display: flex; flex-direction: column; align-items: center;
+  gap: 4px; padding: 8px 0; background: var(--side-bg); border-right: 1px solid #000;
+}
+.abtn {
+  width: 34px; height: 34px; border-radius: 8px; background: transparent; border: none;
+  color: var(--side-muted); font-size: 14px; cursor: pointer; display: grid; place-items: center;
+  transition: all .15s var(--ease);
+}
+.abtn:hover { background: var(--side-hover); color: var(--side-ink); }
+.abtn.on { color: var(--side-ink); background: var(--side-hover); box-shadow: inset 2px 0 0 var(--side-ink); }
+.ab-spacer { flex: 1; }
+
+.vsplit { width: 4px; flex-shrink: 0; cursor: col-resize; background: transparent; }
+.vsplit:hover { background: var(--line-strong); }
+
+.rail-heading { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--side-muted); }
+
+/* chat pane: outer = sized container, inner = column layout */
+.chatpane { display: flex; min-height: 0; background: var(--bg-soft); border-left: 1px solid var(--line); }
+.chatpane-inner { flex: 1; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+
+/* editor tabs */
+.tabs {
+  display: flex; align-items: center; gap: 6px; padding: 0 8px; height: 36px; flex-shrink: 0;
+  background: var(--bg-soft); border-bottom: 1px solid var(--line);
+}
+.tabs-scroll { display: flex; gap: 2px; overflow-x: auto; flex: 1; min-width: 0; scrollbar-width: none; }
+.tabs-scroll::-webkit-scrollbar { display: none; }
+.tabs-empty { font-size: 11.5px; color: var(--faint); padding: 0 8px; font-family: var(--mono); }
+.tab {
+  display: flex; align-items: center; gap: 7px; padding: 6px 10px; border: none; background: transparent;
+  color: var(--muted); font-size: 12px; cursor: pointer; border-radius: 7px 7px 0 0;
+  white-space: nowrap; font-family: var(--mono);
+}
+.tab:hover { background: var(--bg-sunken); color: var(--ink); }
+.tab.active { background: var(--bg); color: var(--ink); box-shadow: inset 0 2px 0 var(--ink); }
+.tab-close { font-size: 10px; opacity: .5; padding: 2px 4px; border-radius: 4px; }
+.tab-close:hover { opacity: 1; background: var(--line); }
+.tab-add { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 13px; padding: 4px 7px; border-radius: 6px; }
+.tab-add:hover { background: var(--bg-sunken); color: var(--ink); }
+
+/* status bar */
+.statusbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 60; height: 26px;
+  display: flex; align-items: center; gap: 2px; padding: 0 8px;
+  background: var(--side-bg); color: var(--side-muted);
+  font-size: 11px; font-family: var(--mono); border-top: 1px solid #000;
+}
+.sb-item { background: none; border: none; color: inherit; font: inherit; padding: 2px 8px; border-radius: 4px; cursor: pointer; white-space: nowrap; }
+button.sb-item:hover { background: var(--side-hover); color: var(--side-ink); }
+span.sb-item { cursor: default; }
+.sb-spacer { flex: 1; }
+
+/* ============================================================
+   AI TEAM: mode switch, role grid, pipeline trace
+   ============================================================ */
+.chat-title { font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.mode-switch { display: flex; border: 1px solid var(--line-strong); border-radius: 999px; overflow: hidden; margin-left: auto; }
+.mode-btn { background: transparent; border: none; color: var(--muted); font-size: 11.5px; padding: 4px 12px; cursor: pointer; }
+.mode-btn.on { background: var(--ink); color: var(--bg); }
+
+.team-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.team-role { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.team-role-label { font-size: 11px; color: var(--muted); }
+.sel-sm { padding: 4px 8px; font-size: 11.5px; }
+.team-note { grid-column: 1 / -1; font-size: 11px; color: var(--faint); line-height: 1.5; }
+
+.pipeline { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.pipeline-title { font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
+.pstep { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-soft); overflow: hidden; }
+.pstep summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-size: 12px; list-style: none; }
+.pstep summary::-webkit-details-marker { display: none; }
+.pstep-icon { width: 18px; text-align: center; }
+.pstep-label { font-weight: 600; }
+.pstep-model { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pstep-meta { font-family: var(--mono); font-size: 10.5px; color: var(--ok); }
+.pstep.fail .pstep-meta { color: var(--bad); }
+.pstep-body {
+  padding: 8px 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted);
+  white-space: pre-wrap; max-height: 200px; overflow: auto; font-family: var(--mono); line-height: 1.6;
+}
