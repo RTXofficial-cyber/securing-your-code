@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { api, isDesktop } from '../lib/api.js';
+import { api, isDesktop, isBridge } from '../lib/api.js';
 import FileTree from './FileTree.jsx';
 import EditorPane from './Editor.jsx';
 import TerminalPane from './Terminal.jsx';
@@ -45,6 +45,28 @@ export default function Studio({
     } catch (e) { console.error(e); }
   }, []);
   useEffect(() => { refresh(); }, [refresh, tick]);
+
+  // ---- loopback bridge: open THIS workspace in Chrome ----
+  const [bridge, setBridge] = useState(null);
+  const [notice, setNotice] = useState('');
+  const openInChrome = async () => {
+    try {
+      const r = await api.bridgeOpen();
+      if (r?.ok) {
+        setBridge({ running: true, port: r.port });
+        setNotice(`Chrome opened — http://127.0.0.1:${r.port} (same workspace, loopback only)`);
+      } else {
+        setNotice(r?.error || 'Could not start the browser bridge');
+      }
+    } catch (e) {
+      setNotice(`Bridge error: ${e?.message || e}`);
+    }
+    setTimeout(() => setNotice(''), 8000);
+  };
+  useEffect(() => {
+    if (!isDesktop) return;
+    api.bridgeState?.().then((r) => { if (r?.ok && r.running) setBridge(r); }).catch(() => {});
+  }, []);
 
   // ---- unified drag handling for all three splitters ----
   useEffect(() => {
@@ -117,6 +139,13 @@ export default function Studio({
         <div className="ab-spacer" />
         <button className="abtn" title="Setup & permissions" onClick={onSetup}>⚙</button>
         <button className="abtn" title="Settings & API keys" onClick={() => setSettingsOpen(true)}>⚿</button>
+        {isDesktop && (
+          <button
+            className={`abtn ${bridge?.running ? 'on' : ''}`}
+            title="Open this workspace in Chrome (127.0.0.1 only, token-gated)"
+            onClick={openInChrome}
+          >◎</button>
+        )}
         <button className="abtn" title={theme === 'light' ? 'Dark theme' : 'Light theme'} onClick={onToggleTheme}>{theme === 'light' ? '☾' : '☀'}</button>
         <button className="abtn" title="Back to home" onClick={onHome}>⌂</button>
       </div>
@@ -147,7 +176,9 @@ export default function Studio({
 
       {/* ---------- Center: tabs + editor + terminal ---------- */}
       <main className="center" ref={centerRef}>
-        {!isDesktop && <div className="banner">⚠ Browser preview — the live agent, AI team, workspace and terminal run in the desktop app.</div>}
+        {!isDesktop && !isBridge && <div className="banner">⚠ Browser preview — the live agent, AI team, workspace and terminal run in the desktop app.</div>}
+        {isBridge && <div className="banner">◎ Chrome bridge — connected to Dev Studio on this PC. Same workspace, same terminal, same plugins. 127.0.0.1 only.</div>}
+        {notice && <div className="banner">{notice}</div>}
         <EditorPane
           openFiles={openFiles}
           activePath={activePath}
@@ -188,7 +219,8 @@ export default function Studio({
         <span className="sb-item">{openFiles.length} editor{openFiles.length === 1 ? '' : 's'} open</span>
         <span className="sb-item">{readyCount} model{readyCount === 1 ? '' : 's'} connected</span>
         <div className="sb-spacer" />
-        <span className="sb-item">{info?.packaged ? 'packaged build' : isDesktop ? 'desktop dev' : 'browser preview'}</span>
+        <span className="sb-item">{info?.packaged ? 'packaged build' : isBridge ? `chrome bridge :${bridge?.port || ''}` : isDesktop ? 'desktop dev' : 'browser preview'}</span>
+        {isDesktop && <button className="sb-item" onClick={openInChrome} title="Open this workspace in Chrome">◎ open in chrome</button>}
         <button className="sb-item" onClick={onSetup}>setup &amp; .exe</button>
         <button className="sb-item" onClick={onLock} title="Lock the app now"> lock</button>
         <button className="sb-item" onClick={onToggleTheme}>{theme === 'light' ? '☾ dark' : '☀ light'}</button>

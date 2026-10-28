@@ -457,6 +457,82 @@ async function test(name, fn) {
     assert.strictEqual(list.find((p) => p.id === 'ollama').enabled, true, 'official plugin defaults on');
   });
 
+  console.log('\nLoopback bridge (Chrome <-> desktop app)');
+  const http = require('node:http');
+  const { startBridge } = require('../electron/bridge.cjs');
+
+  await test('bridge serves the build, gates RPC by token, loopback only', async () => {
+    const distDir = path.join(tmp, 'dist');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, 'index.html'), '<html><body>bridge-ok</body></html>');
+
+    const impl = {
+      files: async () => ({ ok: true, tree: [{ name: 'a.txt', path: 'a.txt', type: 'file' }] }),
+      echo: async (x) => ({ ok: true, x })
+    };
+    const b = await startBridge({ distDir, impl });
+
+    try {
+      assert.strictEqual(b.host, '127.0.0.1', 'bridge must bind loopback only');
+      assert.ok(b.port > 0);
+      assert.ok(b.url.includes(b.token), 'URL carries the token');
+      assert.strictEqual(b.token.length, 64, '256-bit hex token');
+
+      // page + assets are served from disk
+      const page = await fetch(b.url);
+      assert.strictEqual(page.status, 200);
+      assert.match(await page.text(), /bridge-ok/);
+
+      // correct token -> RPC reaches the same impl the desktop uses
+      const good = await fetch(`http://127.0.0.1:${b.port}/api/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ds-token': b.token },
+        body: JSON.stringify({ method: 'echo', args: ['hi'] })
+      });
+      assert.strictEqual(good.status, 200);
+      assert.deepStrictEqual(await good.json(), { ok: true, x: 'hi' });
+
+      // wrong / missing token -> 401
+      const bad = await fetch(`http://127.0.0.1:${b.port}/api/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ds-token': 'nope' },
+        body: JSON.stringify({ method: 'echo', args: ['hi'] })
+      });
+      assert.strictEqual(bad.status, 401);
+      const anon = await fetch(`http://127.0.0.1:${b.port}/api/rpc`, { method: 'POST', body: '{}' });
+      assert.strictEqual(anon.status, 401);
+
+      // unknown method -> 404 (whitelist)
+      const unknown = await fetch(`http://127.0.0.1:${b.port}/api/rpc`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-ds-token': b.token },
+        body: JSON.stringify({ method: 'constructor', args: [] })
+      });
+      assert.strictEqual(unknown.status, 404);
+
+      // path traversal is neutralized: the URL parser collapses '..' before the
+      // filesystem is touched, so a file outside dist/ can never be read.
+      const secret = fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8');
+      const trav = await new Promise((resolve, reject) => {
+        const rq = http.request(
+          { host: '127.0.0.1', port: b.port, path: `/../package.json?ds_token=${b.token}`, method: 'GET' },
+          (rs) => {
+            const chunks = [];
+            rs.on('data', (c) => chunks.push(c));
+            rs.on('end', () => resolve({ status: rs.statusCode, body: Buffer.concat(chunks).toString('utf8') }));
+          }
+        );
+        rq.on('error', reject);
+        rq.end();
+      });
+      assert.ok(!trav.body.includes('"electron-builder"'), 'traversal must not leak files outside dist/');
+      assert.ok(trav.status === 403 || trav.status === 404 || trav.status === 200, `unexpected status ${trav.status}`);
+      assert.ok(secret.includes('"electron-builder"'), 'sanity: the target file really is sensitive');
+    } finally {
+      await b.stop();
+    }
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

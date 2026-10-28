@@ -53,7 +53,13 @@ const studio = {
     const listener = (_e, data) => cb(data);
     ipcRenderer.on('terminal:data', listener);
     return () => ipcRenderer.removeListener('terminal:data', listener);
-  }
+  },
+
+  // ---- loopback bridge (open this same workspace in Chrome) ----
+  bridgeStart: () => ipcRenderer.invoke('bridge:start'),
+  bridgeOpen: () => ipcRenderer.invoke('bridge:open'),
+  bridgeStop: () => ipcRenderer.invoke('bridge:stop'),
+  bridgeState: () => ipcRenderer.invoke('bridge:state')
 };
 
 contextBridge.exposeInMainWorld('studio', studio);

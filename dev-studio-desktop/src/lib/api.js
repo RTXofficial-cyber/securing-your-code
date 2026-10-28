@@ -135,7 +135,107 @@ const mock = {
     return { ok: true, exitCode: 0, cwd: '(browser preview)', output: `[preview] would run: ${c}` };
   },
   terminalKill: async () => ({ ok: true }),
-  onTerminal: () => () => {}
+  onTerminal: () => () => {},
+  bridgeStart: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  bridgeOpen: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  bridgeStop: async () => ({ ok: true, running: false }),
+  bridgeState: async () => ({ ok: true, running: false, port: null, url: null })
 };
 
-export const api = isDesktop ? window.studio : mock;
+/**
+ * Loopback bridge transport.
+ *
+ * When the desktop app opens THIS build in Chrome (button: "Open in Chrome"),
+ * it hands the tab a one-time token in the URL. The tab then talks to the
+ * desktop main process over http://127.0.0.1:<port>/api/rpc + a WebSocket —
+ * so Chrome and the .exe share one workspace, one terminal, one plugin set
+ * and one PIN lock. Same UI, same files, two surfaces.
+ */
+const bridgeToken = (() => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const fromUrl = new URLSearchParams(window.location.search).get('ds_token');
+    if (fromUrl) {
+      window.sessionStorage?.setItem('ds_token', fromUrl);
+      return fromUrl;
+    }
+    return window.sessionStorage?.getItem('ds_token') || null;
+  } catch {
+    return null;
+  }
+})();
+
+export const isBridge = !isDesktop && !!bridgeToken;
+
+function makeBridgeTransport(token) {
+  const rpc = async (method, ...args) => {
+    const res = await fetch('/api/rpc', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ds-token': token },
+      body: JSON.stringify({ method, args })
+    });
+    if (res.status === 401) return { ok: false, error: 'Bridge token rejected — reopen from the desktop app' };
+    try { return await res.json(); } catch { return { ok: false, error: 'Bad bridge response' }; }
+  };
+
+  let ws = null;
+  const subs = new Set();
+  const ensureWs = () => {
+    if (ws && ws.readyState !== 3) return ws;
+    const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    ws = new WebSocket(`${proto}//${window.location.host}/ws?token=${encodeURIComponent(token)}`);
+    ws.onmessage = (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg?.channel === 'terminal:data') subs.forEach((cb) => cb(msg.payload));
+      } catch {}
+    };
+    return ws;
+  };
+
+  const desktopOnly = (what) => async () => ({ ok: false, error: `${what} — use the desktop app for this` });
+
+  return {
+    appInfo: () => rpc('appInfo'),
+    capabilities: () => rpc('capabilities'),
+    setPermission: (k, v) => rpc('setPermission', k, v),
+    providers: () => rpc('providers'),
+    setKey: (id, key) => rpc('setKey', id, key),
+    testConnection: (id) => rpc('testConnection', id),
+    chat: (payload) => rpc('chat', payload),
+    roles: () => rpc('roles'),
+    ensemble: (payload) => rpc('ensemble', payload),
+    plugins: () => rpc('plugins'),
+    pluginsScan: () => rpc('pluginsScan'),
+    pluginSetEnabled: (id, on) => rpc('pluginSetEnabled', id, on),
+    pluginTest: (id) => rpc('pluginTest', id),
+    files: () => rpc('files'),
+    readFile: (p) => rpc('readFile', p),
+    writeFile: (p, c) => rpc('writeFile', p, c),
+    deleteFile: (p) => rpc('deleteFile', p),
+    lockState: () => rpc('lockState'),
+    lockSet: (pin) => rpc('lockSet', pin),
+    lockVerify: (pin) => rpc('lockVerify', pin),
+    lockChange: (o, n) => rpc('lockChange', o, n),
+    lockClear: () => rpc('lockClear'),
+    lockNote: (kind) => rpc('lockNote', kind),
+    lockAutoLock: (m) => rpc('lockAutoLock', m),
+    auditRead: (limit) => rpc('auditRead', limit),
+    auditClear: () => rpc('auditClear'),
+    terminalStart: () => { ensureWs(); return rpc('terminalStart'); },
+    terminalSend: (c) => rpc('terminalSend', c),
+    terminalKill: () => rpc('terminalKill'),
+    onTerminal: (cb) => { ensureWs(); subs.add(cb); return () => subs.delete(cb); },
+    // these have no meaning inside a browser tab
+    chooseWorkspace: desktopOnly('Folder picker is desktop-only'),
+    openWorkspace: desktopOnly('Opening folders is desktop-only'),
+    revealWorkspace: desktopOnly('Revealing folders is desktop-only'),
+    pluginOpenFolder: desktopOnly('Opening the plugins folder is desktop-only'),
+    bridgeStart: () => ({ ok: true, already: true }),
+    bridgeOpen: () => ({ ok: false, error: 'You are already in Chrome' }),
+    bridgeStop: () => rpc('appInfo').then(() => ({ ok: false, error: 'Close it from the desktop app' })),
+    bridgeState: () => ({ ok: true, running: true, port: Number(window.location.port) || null, url: window.location.href })
+  };
+}
+
+export const api = isDesktop ? window.studio : (bridgeToken ? makeBridgeTransport(bridgeToken) : mock);

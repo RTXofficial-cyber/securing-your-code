@@ -110,19 +110,97 @@ path traversal is blocked at the IPC layer.
 ## Layout
 
 ```
-electron/       main process: window, IPC, terminal, workspace sandboxing
-shared/         provider connectors + agent engine (pure Node, unit-tested)
-src/            React renderer: landing page + studio UI
+electron/       main process: window, IPC, terminal, sandboxing, bridge.cjs
+shared/         providers, agent, orchestrator, plugins.cjs, lock.cjs (PIN + audit)
+src/            React renderer: landing, setup, studio, lock screen
+plugins/        official plugins (ollama, openrouter, git-tools)
 resources/      app icon
-test/           logic tests that run without Electron
-.github/..      CI workflow that produces the Windows .exe
+test/           logic tests (run.cjs) + component tests (ui/*.test.jsx)
+e2e/            Playwright specs that drive real Chrome
+ci/             GitHub Actions: tests, Chrome E2E, Windows .exe, mac/linux
 ```
 
-## Security notes
+## Security — only you get in
 
-- `contextIsolation: on`, `nodeIntegration: off`, renderer talks to the main
-  process only through an explicit allow-list of IPC channels.
-- A Content-Security-Policy blocks remote scripts; Monaco and xterm are
-  bundled locally, so the app works with no internet.
-- The terminal runs real commands — that is the point of the app. Treat the
-  workspace folder like any folder you hand to a developer.
+**App lock (PIN).** Settings → Security lets you set a PIN. From then on the
+app opens on a lock screen and nothing else is reachable until the PIN is
+entered.
+
+- The PIN is hashed with **scrypt + a random salt** and compared with
+  `timingSafeEqual`; the plaintext PIN is never written to disk.
+- State lives in `<userData>/lock.json` with **0600** permissions.
+- **Auto-lock** on idle (off / 5 / 15 / 30 / 60 min), plus a lock button in the
+  status bar and an activity-bar shortcut.
+- Failed attempts are recorded and the lock screen tells you so.
+
+**Audit log.** Every sensitive event is appended to `<userData>/lock.json.audit.log`
+and viewable in Settings → Security: `pin.set` / `pin.change` / `pin.denied`,
+`lock` / `unlock`, `key.set` / `key.remove`, `workspace.change`,
+`plugin.enable` / `plugin.disable`, `agent.run`, `ensemble.run`,
+`bridge.start` / `bridge.open` / `bridge.stop`. You can clear it in one click.
+
+**Electron hardening** (`electron/main.cjs`):
+
+| Control | Setting |
+| --- | --- |
+| Renderer sandbox | `sandbox: true`, `nodeIntegration: false`, `contextIsolation: true` |
+| Webviews | `webviewTag: false` + `will-attach-webview` prevented |
+| Mixed content | `allowRunningInsecureContent: false` |
+| Permissions | `setPermissionRequestHandler` **denies every request** (camera, mic, geolocation, notifications…) |
+| Network | `webRequest.onBeforeRequest` **cancels any non-loopback http(s) request** made by the UI |
+| IPC | explicit allow-list only; the preload exposes promise methods, nothing else |
+
+**Plugin trust split.** Plugins inside the app bundle (`plugins/`, shipped by
+us) are official and enabled by default. Plugins you drop into
+`<userData>/plugins` are **off until you enable them** — a stray folder can
+never activate itself. A plugin can also opt in explicitly with
+`"enabledByDefault": true` in its `plugin.json`.
+
+**Agent permissions.** Settings → Permissions gates `writeFiles` and
+`runCommands`; when off, the AI can only read. Actions it was not allowed to
+run are reported back to you in the chat (`skipped[]`), never silently dropped.
+
+The terminal runs real commands — that is the point of the app. Treat the
+workspace folder like any folder you hand to a developer.
+
+## Open in Chrome — one PC, one set of files, two surfaces
+
+VS Code-style: the desktop app owns the workspace, and you can open **that same
+workspace** in Chrome with the ◎ button in the activity bar ("Open in Chrome")
+or the status bar.
+
+```
+Dev Studio (.exe)  ── owns ──▶  C:\your\workspace   ◀── same files ──  Chrome tab
+       │                                                                     ▲
+       └── loopback bridge: http://127.0.0.1:<random port>/?ds_token=…  ─────┘
+```
+
+- The bridge binds **127.0.0.1 only** — it is not reachable from your network.
+- Every request needs a **256-bit random token** (checked with
+  `timingSafeEqual`), handed to the tab in the URL when you click the button.
+- Only **whitelisted RPC methods** are callable, and they are literally the same
+  functions the desktop renderer uses — so Chrome gets the real workspace, real
+  providers, real plugins, real PIN lock and a **live shared terminal**
+  (WebSocket), not a mock.
+- Desktop-only actions (folder picker, reveal in Explorer) are clearly reported
+  as such in the browser instead of pretending to work.
+- Close it any time: Settings → Security, or quit the app. Nothing is left
+  listening when the app exits.
+
+## Testing
+
+```bash
+npm run test:logic   # 51 pure-Node tests: agent, providers, plugins, lock, bridge
+npm run test:ui      # 7 React component tests (vitest + jsdom + Testing Library)
+npm test             # both of the above
+npm run test:e2e     # real Chrome (Playwright) against the production build
+```
+
+For `test:e2e` the first time: `npx playwright install chromium`, then
+`npm run build && npm run test:e2e`. It serves `dist/` with `vite preview` and
+drives Chromium through landing → setup → studio, the explorer/tabs/terminal,
+the 4-step AI team pipeline and every Settings panel.
+
+CI (`ci/build-desktop.yml`) runs four jobs on every push: **test** (logic +
+unit), **e2e-chrome** (real Chromium + production build, traces uploaded on
+failure), **windows** (builds the `.exe` installers) and a **mac-linux** matrix.
