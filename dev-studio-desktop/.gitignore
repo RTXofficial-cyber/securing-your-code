@@ -1,0 +1,15 @@
+# Dependencies & build output — CI rebuilds these
+node_modules/
+dist/
+release/
+
+# Local secrets / config
+.env
+dev-studio.env
+
+# Logs
+*.log
+
+# Re-include the lockfile even though the repo root .gitignore excludes it,
+# so CI can do a reproducible `npm ci`.
+!package-lock.json

@@ -1,0 +1,115 @@
+name: Build Dev Studio Desktop
+
+on:
+  push:
+    paths:
+      - 'dev-studio-desktop/**'
+      - '.github/workflows/build-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast sanity gate: pure-Node logic tests + frontend bundle, no Electron needed.
+  test:
+    name: Logic tests + frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dev-studio-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dev-studio-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Agent / sandbox / terminal / provider tests
+        run: npm run test:logic
+
+      - name: Build frontend bundle
+        run: npm run build
+
+  # Real Windows build — produces the .exe artifacts.
+  windows:
+    name: Windows .exe
+    runs-on: windows-latest
+    needs: test
+    defaults:
+      run:
+        working-directory: dev-studio-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dev-studio-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      # NSIS installer + portable exe. electron-builder fetches its Windows
+      # toolchain (nsis, winCodeSign) automatically on this runner.
+      - name: Package Windows app
+        run: npm run dist:win
+
+      - name: List artifacts
+        run: dir release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dev-Studio-Windows-x64
+          path: |
+            dev-studio-desktop/release/*.exe
+            dev-studio-desktop/release/*.exe.blockmap
+            dev-studio-desktop/release/latest.yml
+          if-no-files-found: error
+          retention-days: 30
+
+  # Optional extra targets so the same code ships everywhere.
+  mac-linux:
+    name: macOS + Linux builds
+    runs-on: ${{ matrix.os }}
+    needs: test
+    continue-on-error: true
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    defaults:
+      run:
+        working-directory: dev-studio-desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dev-studio-desktop/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Package
+        run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dev-Studio-${{ matrix.os }}
+          path: |
+            dev-studio-desktop/release/*.dmg
+            dev-studio-desktop/release/*.AppImage
+          if-no-files-found: ignore
+          retention-days: 14
