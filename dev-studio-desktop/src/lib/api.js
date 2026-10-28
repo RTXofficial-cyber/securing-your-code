@@ -139,7 +139,9 @@ const mock = {
   bridgeStart: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeOpen: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeStop: async () => ({ ok: true, running: false }),
-  bridgeState: async () => ({ ok: true, running: false, port: null, url: null })
+  bridgeState: async () => ({ ok: true, running: false, port: null, url: null, mode: 'full' }),
+  bridgeMode: async () => ({ ok: true, mode: 'full' }),
+  bridgeSetMode: async (m) => ({ ok: true, mode: m === 'readonly' ? 'readonly' : 'full' })
 };
 
 /**
@@ -233,8 +235,10 @@ function makeBridgeTransport(token) {
     pluginOpenFolder: desktopOnly('Opening the plugins folder is desktop-only'),
     bridgeStart: () => ({ ok: true, already: true }),
     bridgeOpen: () => ({ ok: false, error: 'You are already in Chrome' }),
-    bridgeStop: () => rpc('appInfo').then(() => ({ ok: false, error: 'Close it from the desktop app' })),
-    bridgeState: () => ({ ok: true, running: true, port: Number(window.location.port) || null, url: window.location.href })
+    bridgeStop: () => ({ ok: false, error: 'Close it from the desktop app' }),
+    bridgeState: () => ({ ok: true, running: true, port: Number(window.location.port) || null, url: window.location.href }),
+    bridgeMode: () => rpc('bridgeMode'),
+    bridgeSetMode: (m) => rpc('bridgeSetMode', m)
   };
 }
 

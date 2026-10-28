@@ -51,10 +51,10 @@ export default function Studio({
   const [notice, setNotice] = useState('');
   const openInChrome = async () => {
     try {
-      const r = await api.bridgeOpen();
+      const r = await api.bridgeOpen(bridge?.mode || 'full');
       if (r?.ok) {
-        setBridge({ running: true, port: r.port });
-        setNotice(`Chrome opened — http://127.0.0.1:${r.port} (same workspace, loopback only)`);
+        setBridge({ running: true, port: r.port, mode: r.mode });
+        setNotice(`Chrome opened — http://127.0.0.1:${r.port} (${r.mode === 'readonly' ? 'read-only' : 'full access'}, loopback only)`);
       } else {
         setNotice(r?.error || 'Could not start the browser bridge');
       }
@@ -64,8 +64,15 @@ export default function Studio({
     setTimeout(() => setNotice(''), 8000);
   };
   useEffect(() => {
-    if (!isDesktop) return;
-    api.bridgeState?.().then((r) => { if (r?.ok && r.running) setBridge(r); }).catch(() => {});
+    if (isDesktop) {
+      api.bridgeState?.().then((r) => { if (r?.ok && r.running) setBridge(r); }).catch(() => {});
+      return;
+    }
+    if (isBridge) {
+      api.bridgeMode?.().then((r) => {
+        if (r?.ok) setBridge({ running: true, mode: r.mode, port: Number(window.location.port) || null });
+      }).catch(() => {});
+    }
   }, []);
 
   // ---- unified drag handling for all three splitters ----
@@ -177,7 +184,12 @@ export default function Studio({
       {/* ---------- Center: tabs + editor + terminal ---------- */}
       <main className="center" ref={centerRef}>
         {!isDesktop && !isBridge && <div className="banner">⚠ Browser preview — the live agent, AI team, workspace and terminal run in the desktop app.</div>}
-        {isBridge && <div className="banner">◎ Chrome bridge — connected to Dev Studio on this PC. Same workspace, same terminal, same plugins. 127.0.0.1 only.</div>}
+        {isBridge && (
+          <div className="banner">
+            ◎ Chrome bridge — connected to Dev Studio on this PC. Same workspace, same terminal, same plugins. 127.0.0.1 only.
+            {bridge?.mode === 'readonly' && <strong> Read-only session: you can view, but writes, commands and AI runs are refused.</strong>}
+          </div>
+        )}
         {notice && <div className="banner">{notice}</div>}
         <EditorPane
           openFiles={openFiles}
@@ -219,8 +231,8 @@ export default function Studio({
         <span className="sb-item">{openFiles.length} editor{openFiles.length === 1 ? '' : 's'} open</span>
         <span className="sb-item">{readyCount} model{readyCount === 1 ? '' : 's'} connected</span>
         <div className="sb-spacer" />
-        <span className="sb-item">{info?.packaged ? 'packaged build' : isBridge ? `chrome bridge :${bridge?.port || ''}` : isDesktop ? 'desktop dev' : 'browser preview'}</span>
-        {isDesktop && <button className="sb-item" onClick={openInChrome} title="Open this workspace in Chrome">◎ open in chrome</button>}
+        <span className="sb-item">{info?.packaged ? 'packaged build' : isBridge ? `chrome bridge :${bridge?.port || ''}${bridge?.mode === 'readonly' ? ' read-only' : ''}` : isDesktop ? 'desktop dev' : 'browser preview'}</span>
+        {isDesktop && <button className="sb-item" onClick={openInChrome} title="Open this workspace in Chrome">◎ open in chrome{bridge?.mode === 'readonly' ? ' (read-only)' : ''}</button>}
         <button className="sb-item" onClick={onSetup}>setup &amp; .exe</button>
         <button className="sb-item" onClick={onLock} title="Lock the app now"> lock</button>
         <button className="sb-item" onClick={onToggleTheme}>{theme === 'light' ? '☾ dark' : '☀ light'}</button>

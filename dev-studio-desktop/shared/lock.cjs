@@ -60,15 +60,55 @@ class LockManager {
     this.audit('pin.set');
   }
 
+  /** Brute-force throttle: 5 wrong PINs -> 30 s cooldown, recorded in the audit log. */
+  static MAX_ATTEMPTS = 5;
+  static COOLDOWN_MS = 30_000;
+
+  /** ms remaining in a cooldown (0 = not locked out); clears expired lockouts. */
+  lockoutMs() {
+    const until = Number(this.data.lockedUntil) || 0;
+    if (!until) return 0;
+    const left = until - Date.now();
+    if (left > 0) return left;
+    delete this.data.lockedUntil;
+    this.data.failedAttempts = 0;
+    this._save();
+    return 0;
+  }
+
+  attemptsLeft() {
+    return Math.max(0, LockManager.MAX_ATTEMPTS - (Number(this.data.failedAttempts) || 0));
+  }
+
   verify(pin) {
     if (!this.isSet()) return true;
+    if (this.lockoutMs() > 0) {
+      this.audit('pin.lockout.blocked');
+      return false;
+    }
+    let match = false;
     try {
       const got = Buffer.from(hashPin(pin, this.data.salt), 'hex');
       const want = Buffer.from(this.data.hash, 'hex');
-      return got.length === want.length && crypto.timingSafeEqual(got, want);
+      match = got.length === want.length && crypto.timingSafeEqual(got, want);
     } catch {
-      return false;
+      match = false;
     }
+    if (match) {
+      if (this.data.failedAttempts || this.data.lockedUntil) {
+        this.data.failedAttempts = 0;
+        delete this.data.lockedUntil;
+        this._save();
+      }
+      return true;
+    }
+    this.data.failedAttempts = (Number(this.data.failedAttempts) || 0) + 1;
+    if (this.data.failedAttempts >= LockManager.MAX_ATTEMPTS) {
+      this.data.lockedUntil = Date.now() + LockManager.COOLDOWN_MS;
+      this.audit('pin.lockout', { after: this.data.failedAttempts, cooldownMs: LockManager.COOLDOWN_MS });
+    }
+    this._save();
+    return false;
   }
 
   changePin(oldPin, newPin) {

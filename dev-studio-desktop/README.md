@@ -132,6 +132,9 @@ entered.
 - **Auto-lock** on idle (off / 5 / 15 / 30 / 60 min), plus a lock button in the
   status bar and an activity-bar shortcut.
 - Failed attempts are recorded and the lock screen tells you so.
+- **Brute-force throttle**: 5 wrong PINs → 30 s cooldown (the lock screen counts
+  it down and even the correct PIN is refused until it expires), audited as
+  `pin.lockout`. The counter resets after a successful unlock.
 
 **Audit log.** Every sensitive event is appended to `<userData>/lock.json.audit.log`
 and viewable in Settings → Security: `pin.set` / `pin.change` / `pin.denied`,
@@ -184,8 +187,15 @@ Dev Studio (.exe)  ── owns ──▶  C:\your\workspace   ◀── same fil
   (WebSocket), not a mock.
 - Desktop-only actions (folder picker, reveal in Explorer) are clearly reported
   as such in the browser instead of pretending to work.
-- Close it any time: Settings → Security, or quit the app. Nothing is left
-  listening when the app exits.
+- **Two access modes** (Settings → Security → "Browser access"):
+  - **full access** — Chrome can edit files, run commands and talk to the AI.
+  - **read-only** — the tab can *look* (files, tree, live terminal output,
+    providers, plugins) but every mutating call is refused with a clear
+    `403 read-only Chrome session` message: writes, deletes, shell commands,
+    AI runs, key changes, plugin toggles, permission changes, PIN changes.
+    Switch modes live; the tab shows a banner saying which one it is in.
+- Close it any time: Settings → Security → `stop`, or quit the app. Nothing is
+  left listening when the app exits, and every start/open/mode-change is audited.
 
 ## Testing
 

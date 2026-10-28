@@ -56,10 +56,12 @@ const studio = {
   },
 
   // ---- loopback bridge (open this same workspace in Chrome) ----
-  bridgeStart: () => ipcRenderer.invoke('bridge:start'),
-  bridgeOpen: () => ipcRenderer.invoke('bridge:open'),
+  bridgeStart: (mode) => ipcRenderer.invoke('bridge:start', mode),
+  bridgeOpen: (mode) => ipcRenderer.invoke('bridge:open', mode),
   bridgeStop: () => ipcRenderer.invoke('bridge:stop'),
-  bridgeState: () => ipcRenderer.invoke('bridge:state')
+  bridgeState: () => ipcRenderer.invoke('bridge:state'),
+  bridgeMode: () => ipcRenderer.invoke('bridge:mode'),
+  bridgeSetMode: (mode) => ipcRenderer.invoke('bridge:setMode', mode)
 };
 
 contextBridge.exposeInMainWorld('studio', studio);

@@ -16,6 +16,33 @@ export default function Settings({ info, providers, workspace, focusProvider, on
   const [audit, setAudit] = useState(null);
   const [sec, setSec] = useState({ cur: '', nw: '', cf: '' });
   const [secMsg, setSecMsg] = useState(null);
+  const [bridge, setBridge] = useState(null);
+  const [bridgeMsg, setBridgeMsg] = useState('');
+
+  // live bridge state: running? which mode? (desktop app only)
+  useEffect(() => {
+    let live = true;
+    const load = () => api.bridgeState?.().then((r) => { if (live && r?.ok) setBridge(r); }).catch(() => {});
+    load();
+    const id = setInterval(load, 4000);
+    return () => { live = false; clearInterval(id); };
+  }, []);
+
+  const openChrome = async () => {
+    const r = await api.bridgeOpen?.(bridge?.mode || 'full');
+    if (r?.ok) setBridgeMsg(`Chrome opened on http://127.0.0.1:${r.port} — ${r.mode === 'readonly' ? 'read-only' : 'full access'}`);
+    else setBridgeMsg(r?.error || 'Could not start the browser bridge');
+  };
+
+  const setBridgeMode = async (mode) => {
+    const r = await api.bridgeSetMode?.(mode);
+    if (r?.ok) {
+      setBridge((b) => ({ ...(b || {}), mode: r.mode, running: Boolean(b?.running) }));
+      setBridgeMsg(r.mode === 'readonly'
+        ? 'Chrome is now read-only: it can view files and the terminal, but cannot write, run commands, change keys or talk to the AI.'
+        : 'Chrome has full access to this workspace again.');
+    } else setBridgeMsg(r?.error || 'Could not change browser access');
+  };
 
   const current = providers.find((p) => p.id === selected);
 
@@ -250,9 +277,30 @@ export default function Settings({ info, providers, workspace, focusProvider, on
                 </div>
               )) : <div className="cap-detail">No audit entries yet.</div>}
             </div>
+            <div style={{ marginTop: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <span className="cap-detail" style={{ margin: 0 }}>
+                Browser access (Chrome on this PC){bridge?.running ? ` — live on 127.0.0.1:${bridge.port}` : ' — not running'}
+              </span>
+              <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <select
+                  className="sel sel-sm"
+                  style={{ width: 130 }}
+                  value={bridge?.mode || 'full'}
+                  onChange={(e) => setBridgeMode(e.target.value)}
+                  title="What a Chrome tab attached to this workspace may do"
+                >
+                  <option value="full">full access</option>
+                  <option value="readonly">read-only</option>
+                </select>
+                <button className="btn btn-sm btn-solid" onClick={openChrome}>◎ open in chrome</button>
+                {bridge?.running && <button className="btn btn-sm" onClick={async () => { await api.bridgeStop?.(); setBridge((b) => ({ ...(b || {}), running: false })); setBridgeMsg('Browser bridge stopped — no port is listening.'); }}>stop</button>}
+              </span>
+            </div>
+            {bridgeMsg && <div className="cap-detail">{bridgeMsg}</div>}
             <div className="hint">
               Hardening active: renderer sandboxed, no Node access, all permission requests denied,
-              external network calls from the UI blocked, plugin code isolated, keys stored 0600.
+              external network calls from the UI blocked, plugin code isolated, keys stored 0600,
+              PIN throttled after 5 wrong attempts, browser bridge loopback-only + token-gated.
             </div>
           </div>
 

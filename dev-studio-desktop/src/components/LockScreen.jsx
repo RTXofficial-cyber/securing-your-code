@@ -11,17 +11,35 @@ export default function LockScreen({ onUnlocked }) {
   const [confirm, setConfirm] = useState('');
   const [error, setError] = useState('');
   const [skip, setSkip] = useState(false);
+  const [retryIn, setRetryIn] = useState(0);
+  const [attemptsLeft, setAttemptsLeft] = useState(null);
 
   useEffect(() => {
-    api.lockState().then((r) => setMode(r?.set ? 'unlock' : 'create')).catch(() => setMode('create'));
+    api.lockState().then((r) => {
+      setMode(r?.set ? 'unlock' : 'create');
+      if (r?.retryInMs) setRetryIn(r.retryInMs);
+      if (typeof r?.attemptsLeft === 'number') setAttemptsLeft(r.attemptsLeft);
+    }).catch(() => setMode('create'));
   }, []);
+
+  // visible countdown while a brute-force cooldown is running
+  useEffect(() => {
+    if (retryIn <= 0) return undefined;
+    const id = setInterval(() => setRetryIn((v) => (v <= 1000 ? 0 : v - 1000)), 1000);
+    return () => clearInterval(id);
+  }, [retryIn]);
 
   const submit = async () => {
     setError('');
     if (mode === 'unlock') {
       const r = await api.lockVerify(pin);
-      if (r?.ok) onUnlocked();
+      if (r?.ok) { onUnlocked(); return; }
+      if (r?.retryInMs) setRetryIn(r.retryInMs);
+      if (typeof r?.attemptsLeft === 'number') setAttemptsLeft(r.attemptsLeft);
+      if (r?.error) setError(r.error);
+      else if (attemptsLeft !== null && attemptsLeft > 0) setError(`Wrong PIN — ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} left before a 30s cooldown. Recorded in the audit log.`);
       else setError('Wrong PIN. This attempt was recorded in the audit log.');
+      setPin('');
       return;
     }
     if (pin.length < 4) { setError('PIN must be at least 4 characters.'); return; }
@@ -71,7 +89,9 @@ export default function LockScreen({ onUnlocked }) {
             {error && <div className="lock-error">{error}</div>}
             <div className="lock-actions">
               {mode === 'unlock' ? (
-                <button className="btn btn-solid btn-lg" onClick={submit} disabled={!pin}>Unlock →</button>
+                <button className="btn btn-solid btn-lg" onClick={submit} disabled={!pin || retryIn > 0}>
+                  {retryIn > 0 ? `Locked — retry in ${Math.ceil(retryIn / 1000)}s` : 'Unlock →'}
+                </button>
               ) : (
                 <>
                   <button className="btn btn-solid btn-lg" onClick={submit} disabled={!pin || !confirm}>Set PIN &amp; enter</button>

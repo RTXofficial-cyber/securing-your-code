@@ -12,7 +12,7 @@ const orchestrator = require('../shared/orchestrator.cjs');
 const { PluginManager } = require('../shared/plugins.cjs');
 const { LockManager } = require('../shared/lock.cjs');
 
-const state = { terminal: null, rootRef: null, permissions: null, bridge: null };
+const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full' };
 function getState() {
   return state;
 }
@@ -75,15 +75,40 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
   const lock = new LockManager(path.join(app.getPath('userData'), 'lock.json'));
   state.lock = lock;
 
-  handle('lock:state', () => ({ ok: true, set: lock.isSet(), autoLockMinutes: lock.getAutoLock() }));
+  handle('lock:state', () => ({
+    ok: true,
+    set: lock.isSet(),
+    autoLockMinutes: lock.getAutoLock(),
+    attemptsLeft: lock.attemptsLeft(),
+    retryInMs: lock.lockoutMs()
+  }));
   handle('lock:set', (_e, pin) => {
     try { lock.setPin(pin); return { ok: true }; }
     catch (e) { return { ok: false, error: e.message }; }
   });
   handle('lock:verify', (_e, pin) => {
+    const retryBefore = lock.lockoutMs();
+    if (retryBefore > 0) {
+      return {
+        ok: false,
+        locked: true,
+        retryInMs: retryBefore,
+        attemptsLeft: 0,
+        error: `Too many wrong PINs — locked for another ${Math.ceil(retryBefore / 1000)}s`
+      };
+    }
     const good = lock.verify(pin);
     if (good) lock.noteUnlock(); else lock.noteDenied();
-    return { ok: good };
+    const retryInMs = lock.lockoutMs();
+    return {
+      ok: good,
+      attemptsLeft: lock.attemptsLeft(),
+      retryInMs,
+      locked: retryInMs > 0,
+      error: good ? undefined : (retryInMs > 0
+        ? `Too many wrong PINs — locked for ${Math.ceil(retryInMs / 1000)}s`
+        : 'Wrong PIN')
+    };
   });
   handle('lock:change', (_e, oldPin, newPin) => {
     try { lock.changePin(oldPin, newPin); return { ok: true }; }
@@ -367,8 +392,19 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     auditClear: 'audit:clear',
     terminalStart: 'terminal:start',
     terminalSend: 'terminal:send',
-    terminalKill: 'terminal:kill'
+    terminalKill: 'terminal:kill',
+    bridgeMode: 'bridge:mode',
+    bridgeSetMode: 'bridge:setMode'
   };
+
+  // Methods a read-only Chrome tab must NOT be able to call.
+  const mutatingMethods = [
+    'setPermission', 'setKey', 'writeFile', 'deleteFile',
+    'chat', 'ensemble', 'pluginSetEnabled',
+    'terminalSend', 'terminalKill',
+    'lockSet', 'lockChange', 'lockClear', 'lockAutoLock', 'auditClear',
+    'bridgeSetMode'
+  ];
 
   const bridgeImpl = {};
   for (const [method, channel] of Object.entries(bridgeMethods)) {
@@ -407,27 +443,44 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return wss;
   }
 
-  async function ensureBridge() {
-    if (state.bridge) return state.bridge;
+  async function ensureBridge(mode) {
+    if (mode === 'readonly' || mode === 'full') state.bridgeMode = mode;
+    if (state.bridge) return { ok: true, url: state.bridge.url, port: state.bridge.port, mode: state.bridgeMode };
     const distDir = path.join(__dirname, '..', 'dist');
     if (!fs.existsSync(path.join(distDir, 'index.html'))) {
       return { ok: false, error: 'Renderer build missing — run `npm run build` first.' };
     }
-    const bridge = await startBridge({ distDir, impl: bridgeImpl, createWss });
+    const bridge = await startBridge({
+      distDir,
+      impl: bridgeImpl,
+      createWss,
+      mutating: mutatingMethods,
+      isReadOnly: () => state.bridgeMode === 'readonly'
+    });
     state.bridge = bridge;
-    lock.audit('bridge.start', { port: bridge.port });
-    return { ok: true, url: bridge.url, port: bridge.port };
+    lock.audit('bridge.start', { port: bridge.port, mode: state.bridgeMode });
+    return { ok: true, url: bridge.url, port: bridge.port, mode: state.bridgeMode };
   }
 
-  handle('bridge:start', () => ensureBridge());
+  handle('bridge:start', (_e, mode) => ensureBridge(mode));
 
-  handle('bridge:open', async () => {
-    const r = await ensureBridge();
+  handle('bridge:open', async (_e, mode) => {
+    const r = await ensureBridge(mode);
     if (!r.ok) return r;
     await shell.openExternal(r.url);
-    lock.audit('bridge.open', { port: r.port });
-    return { ok: true, url: r.url, port: r.port };
+    lock.audit('bridge.open', { port: r.port, mode: r.mode });
+    return { ok: true, url: r.url, port: r.port, mode: r.mode };
   });
+
+  // Switch the live browser session between "full access" and "look, don't touch".
+  handle('bridge:setMode', (_e, mode) => {
+    const m = mode === 'readonly' ? 'readonly' : 'full';
+    state.bridgeMode = m;
+    lock.audit('bridge.mode', { mode: m, running: !!state.bridge });
+    return { ok: true, mode: m };
+  });
+
+  handle('bridge:mode', () => ({ ok: true, mode: state.bridgeMode }));
 
   handle('bridge:stop', async () => {
     if (!state.bridge) return { ok: true, running: false };
@@ -442,7 +495,8 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     ok: true,
     running: !!state.bridge,
     port: state.bridge?.port || null,
-    url: state.bridge?.url || null
+    url: state.bridge?.url || null,
+    mode: state.bridgeMode
   }));
 }
 

@@ -64,11 +64,13 @@ function authOk(req, url, token) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-async function startBridge({ distDir, impl, createWss, host = '127.0.0.1' }) {
+async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutating = [], isReadOnly = () => false }) {
   const token = crypto.randomBytes(32).toString('hex');
   const absDist = path.resolve(distDir);
   // Whitelist = the methods we were actually given. Nothing else is callable.
   const allowed = new Set(Object.keys(impl).filter((k) => typeof impl[k] === 'function'));
+  // In read-only mode these are refused, so a browser tab can look but not touch.
+  const mutatingSet = new Set(mutating);
 
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -88,6 +90,14 @@ async function startBridge({ distDir, impl, createWss, host = '127.0.0.1' }) {
         const raw = await readBody(req);
         const { method, args } = JSON.parse(raw || '{}');
         if (!allowed.has(method)) { json(res, 404, { ok: false, error: `unknown method: ${method}` }); return; }
+        if (mutatingSet.has(method) && isReadOnly()) {
+          json(res, 403, {
+            ok: false,
+            readOnly: true,
+            error: `Read-only Chrome session — "${method}" needs full access from the desktop app`
+          });
+          return;
+        }
         const result = await impl[method](...(Array.isArray(args) ? args : []));
         json(res, 200, result === undefined ? { ok: true } : result);
       } catch (err) {

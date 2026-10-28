@@ -533,6 +533,74 @@ async function test(name, fn) {
     }
   });
 
+  await test('PIN brute force is throttled after 5 wrong attempts', () => {
+    const lm = new LockManager(path.join(tmp, 'lock4.json'));
+    lm.setPin('4321');
+    assert.strictEqual(lm.attemptsLeft(), 5);
+    for (let i = 0; i < 4; i += 1) assert.strictEqual(lm.verify('0000'), false);
+    assert.strictEqual(lm.attemptsLeft(), 1);
+    assert.strictEqual(lm.lockoutMs(), 0, 'no cooldown before the 5th failure');
+    assert.strictEqual(lm.verify('0000'), false); // 5th wrong attempt
+    assert.strictEqual(lm.attemptsLeft(), 0);
+    const left = lm.lockoutMs();
+    assert.ok(left > 0 && left <= 30_000, `cooldown should be running, got ${left}`);
+    assert.strictEqual(lm.verify('4321'), false, 'even the correct PIN is refused during cooldown');
+    // simulate the cooldown expiring
+    lm.data.lockedUntil = Date.now() - 1;
+    lm._save();
+    assert.strictEqual(lm.lockoutMs(), 0);
+    assert.strictEqual(lm.verify('4321'), true);
+    assert.strictEqual(lm.attemptsLeft(), 5, 'counter resets after a success');
+    assert.ok(lm.readAudit(50).some((e) => e.event === 'pin.lockout'), 'lockout must be audited');
+  });
+
+  await test('read-only bridge refuses mutating methods but still serves reads', async () => {
+    const distDir = path.join(tmp, 'dist2');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, 'index.html'), '<html>ro</html>');
+
+    let mode = 'full';
+    const impl = {
+      files: async () => ({ ok: true, tree: [] }),
+      readFile: async (p) => ({ ok: true, content: `content of ${p}` }),
+      writeFile: async () => ({ ok: true, wrote: true })
+    };
+    const b = await startBridge({
+      distDir,
+      impl,
+      mutating: ['writeFile'],
+      isReadOnly: () => mode === 'readonly'
+    });
+    const call = (method, args = []) => fetch(`http://127.0.0.1:${b.port}/api/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ds-token': b.token },
+      body: JSON.stringify({ method, args })
+    });
+
+    try {
+      const full = await call('writeFile', ['a.txt', 'hi']);
+      assert.strictEqual(full.status, 200);
+      assert.deepStrictEqual(await full.json(), { ok: true, wrote: true });
+
+      mode = 'readonly';
+      const blocked = await call('writeFile', ['a.txt', 'hi']);
+      assert.strictEqual(blocked.status, 403);
+      const bj = await blocked.json();
+      assert.strictEqual(bj.ok, false);
+      assert.strictEqual(bj.readOnly, true);
+      assert.match(bj.error, /read-only/i);
+
+      // reads keep working in read-only mode
+      const read = await call('readFile', ['a.txt']);
+      assert.strictEqual(read.status, 200);
+      assert.strictEqual((await read.json()).content, 'content of a.txt');
+      const list = await call('files');
+      assert.strictEqual(list.status, 200);
+    } finally {
+      await b.stop();
+    }
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
