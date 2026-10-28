@@ -24,6 +24,16 @@ const mockTree = [
   { name: 'README.md', path: 'README.md', type: 'file', size: 64 }
 ];
 
+// In-browser preview keeps a small in-memory project memory so the UI is real.
+const mockMemory = {
+  project: { name: 'Demo project', summary: '', stack: [], conventions: [] },
+  notes: [{ id: 'demo1', ts: new Date().toISOString(), title: 'Use Vite + React', body: 'Preview build only.', tags: ['stack'] }],
+  tasks: [{ id: 'demot1', ts: new Date().toISOString(), title: 'Ship the Windows .exe', status: 'todo' }],
+  runs: []
+};
+const mockId = () => Math.random().toString(16).slice(2, 12);
+const clone = (o) => JSON.parse(JSON.stringify(o));
+
 const mock = {
   appInfo: async () => ({
     version: '1.0.0',
@@ -141,7 +151,46 @@ const mock = {
   bridgeStop: async () => ({ ok: true, running: false }),
   bridgeState: async () => ({ ok: true, running: false, port: null, url: null, mode: 'full' }),
   bridgeMode: async () => ({ ok: true, mode: 'full' }),
-  bridgeSetMode: async (m) => ({ ok: true, mode: m === 'readonly' ? 'readonly' : 'full' })
+  bridgeSetMode: async (m) => ({ ok: true, mode: m === 'readonly' ? 'readonly' : 'full' }),
+  bridgeGuestList: async () => ({ ok: true, running: false, port: null, guests: [] }),
+  bridgeGuestCreate: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  bridgeGuestRevoke: async () => ({ ok: false, error: 'Only available in the desktop app' }),
+  memoryGet: async () => ({
+    ok: true, memory: clone(mockMemory), context: '## Project memory (preview)',
+    stats: { notes: mockMemory.notes.length, tasks: mockMemory.tasks.length, open: mockMemory.tasks.filter((t) => t.status !== 'done').length, done: 0, runs: 0, hasProject: Boolean(mockMemory.project.summary) }
+  }),
+  memoryProject: async (patch) => { Object.assign(mockMemory.project, patch || {}); return { ok: true, memory: clone(mockMemory) }; },
+  memoryAddNote: async (n) => {
+    if (!n?.title) return { ok: false, error: 'A note needs a title' };
+    const note = { id: mockId(), ts: new Date().toISOString(), title: n.title, body: n.body || '', tags: n.tags || [] };
+    mockMemory.notes.push(note);
+    return { ok: true, note };
+  },
+  memoryUpdateNote: async (id, patch) => {
+    const n = mockMemory.notes.find((x) => x.id === id);
+    if (!n) return { ok: false, error: 'No such note' };
+    Object.assign(n, patch || {});
+    return { ok: true, note: n };
+  },
+  memoryRemoveNote: async (id) => { mockMemory.notes = mockMemory.notes.filter((x) => x.id !== id); return { ok: true, removed: true }; },
+  memoryAddTask: async (t) => {
+    if (!t?.title) return { ok: false, error: 'A task needs a title' };
+    const task = { id: mockId(), ts: new Date().toISOString(), title: t.title, status: 'todo' };
+    mockMemory.tasks.push(task);
+    return { ok: true, task };
+  },
+  memorySetTask: async (id, status) => {
+    const t = mockMemory.tasks.find((x) => x.id === id);
+    if (!t) return { ok: false, error: 'No such task' };
+    t.status = status;
+    return { ok: true, task: t };
+  },
+  memoryRemoveTask: async (id) => { mockMemory.tasks = mockMemory.tasks.filter((x) => x.id !== id); return { ok: true, removed: true }; },
+  memoryClear: async (kind) => {
+    if (!kind || kind === 'all') { mockMemory.notes = []; mockMemory.tasks = []; mockMemory.runs = []; mockMemory.project = { name: '', summary: '', stack: [], conventions: [] }; }
+    else if (mockMemory[kind]) mockMemory[kind] = [];
+    return { ok: true, memory: clone(mockMemory) };
+  }
 };
 
 /**
@@ -238,7 +287,20 @@ function makeBridgeTransport(token) {
     bridgeStop: () => ({ ok: false, error: 'Close it from the desktop app' }),
     bridgeState: () => ({ ok: true, running: true, port: Number(window.location.port) || null, url: window.location.href }),
     bridgeMode: () => rpc('bridgeMode'),
-    bridgeSetMode: (m) => rpc('bridgeSetMode', m)
+    bridgeSetMode: (m) => rpc('bridgeSetMode', m),
+    bridgeGuestList: () => rpc('bridgeGuestList'),
+    // minting or revoking guest links is a desktop-app-only privilege
+    bridgeGuestCreate: desktopOnly('Creating guest links is desktop-only'),
+    bridgeGuestRevoke: desktopOnly('Revoking guest links is desktop-only'),
+    memoryGet: () => rpc('memoryGet'),
+    memoryProject: (patch) => rpc('memoryProject', patch),
+    memoryAddNote: (n) => rpc('memoryAddNote', n),
+    memoryUpdateNote: (id, patch) => rpc('memoryUpdateNote', id, patch),
+    memoryRemoveNote: (id) => rpc('memoryRemoveNote', id),
+    memoryAddTask: (t) => rpc('memoryAddTask', t),
+    memorySetTask: (id, status) => rpc('memorySetTask', id, status),
+    memoryRemoveTask: (id) => rpc('memoryRemoveTask', id),
+    memoryClear: (kind) => rpc('memoryClear', kind)
   };
 }
 

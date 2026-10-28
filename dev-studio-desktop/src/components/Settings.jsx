@@ -18,11 +18,17 @@ export default function Settings({ info, providers, workspace, focusProvider, on
   const [secMsg, setSecMsg] = useState(null);
   const [bridge, setBridge] = useState(null);
   const [bridgeMsg, setBridgeMsg] = useState('');
+  const [guests, setGuests] = useState([]);
+  const [guestForm, setGuestForm] = useState({ label: '', minutes: 60, readOnly: true });
+  const [guestUrl, setGuestUrl] = useState(null);
 
   // live bridge state: running? which mode? (desktop app only)
   useEffect(() => {
     let live = true;
-    const load = () => api.bridgeState?.().then((r) => { if (live && r?.ok) setBridge(r); }).catch(() => {});
+    const load = () => {
+      api.bridgeState?.().then((r) => { if (live && r?.ok) setBridge(r); }).catch(() => {});
+      api.bridgeGuestList?.().then((r) => { if (live && r?.ok) setGuests(r.guests || []); }).catch(() => {});
+    };
     load();
     const id = setInterval(load, 4000);
     return () => { live = false; clearInterval(id); };
@@ -32,6 +38,29 @@ export default function Settings({ info, providers, workspace, focusProvider, on
     const r = await api.bridgeOpen?.(bridge?.mode || 'full');
     if (r?.ok) setBridgeMsg(`Chrome opened on http://127.0.0.1:${r.port} — ${r.mode === 'readonly' ? 'read-only' : 'full access'}`);
     else setBridgeMsg(r?.error || 'Could not start the browser bridge');
+  };
+
+  const createGuest = async () => {
+    const r = await api.bridgeGuestCreate?.({
+      label: guestForm.label || 'guest',
+      minutes: Number(guestForm.minutes) || 60,
+      readOnly: guestForm.readOnly
+    });
+    if (r?.ok) {
+      setGuestUrl({ url: r.url, guest: r.guest });
+      setGuests((g) => [...g, r.guest]);
+      setBridgeMsg(`Guest link created — ${r.guest.readOnly ? 'read-only' : 'full access'}, expires in ${guestForm.minutes} min. It only works on this PC (127.0.0.1).`);
+      setGuestForm((f) => ({ ...f, label: '' }));
+    } else setBridgeMsg(r?.error || 'Could not create a guest link');
+  };
+
+  const revokeGuest = async (id) => {
+    const r = await api.bridgeGuestRevoke?.(id);
+    if (r?.ok !== false) {
+      setGuests((g) => g.filter((x) => x.id !== id));
+      if (guestUrl?.guest?.id === id) setGuestUrl(null);
+      setBridgeMsg('Guest link revoked — it stops working immediately.');
+    } else setBridgeMsg(r?.error || 'Could not revoke');
   };
 
   const setBridgeMode = async (mode) => {
@@ -297,6 +326,68 @@ export default function Settings({ info, providers, workspace, focusProvider, on
               </span>
             </div>
             {bridgeMsg && <div className="cap-detail">{bridgeMsg}</div>}
+
+            {/* ---- expiring guest links ---- */}
+            <div style={{ marginTop: 12 }}>
+              <div className="cap-detail" style={{ marginBottom: 6 }}>
+                Guest links — a short-lived URL for a Chrome tab on this PC. Expired or revoked links stop working at once.
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+                <input
+                  className="lock-input inline"
+                  style={{ width: 150 }}
+                  placeholder="Label (e.g. reviewer)"
+                  value={guestForm.label}
+                  onChange={(e) => setGuestForm((f) => ({ ...f, label: e.target.value }))}
+                />
+                <select
+                  className="sel sel-sm"
+                  style={{ width: 110 }}
+                  value={guestForm.minutes}
+                  onChange={(e) => setGuestForm((f) => ({ ...f, minutes: Number(e.target.value) }))}
+                >
+                  <option value={15}>15 min</option>
+                  <option value={60}>1 hour</option>
+                  <option value={480}>8 hours</option>
+                  <option value={1440}>24 hours</option>
+                </select>
+                <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 12.5 }}>
+                  <input
+                    type="checkbox"
+                    checked={guestForm.readOnly}
+                    onChange={(e) => setGuestForm((f) => ({ ...f, readOnly: e.target.checked }))}
+                  /> read-only
+                </label>
+                <button className="btn btn-sm btn-solid" onClick={createGuest}>＋ create link</button>
+              </div>
+
+              {guestUrl && (
+                <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+                  <div className="guest-url">{guestUrl.url}</div>
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button className="btn btn-sm" onClick={() => { navigator.clipboard?.writeText(guestUrl.url).then(() => setBridgeMsg('Link copied.')); }}>copy link</button>
+                    <button className="btn btn-sm" onClick={() => setGuestUrl(null)}>hide</button>
+                  </div>
+                </div>
+              )}
+
+              {guests?.length > 0 && (
+                <div style={{ display: 'grid', gap: 6, marginTop: 8 }}>
+                  {guests.map((g) => (
+                    <div className="guest-row" key={g.id}>
+                      <b>{g.label}</b>
+                      <span className="cap-detail" style={{ margin: 0 }}>{g.readOnly ? 'read-only' : 'full access'}</span>
+                      <span className="cap-detail" style={{ margin: 0 }}>
+                        {g.expired ? 'expired' : `expires ${new Date(g.expiresAt).toLocaleTimeString()}`}
+                        {g.lastUsed ? ` · used ${new Date(g.lastUsed).toLocaleTimeString()}` : ' · never used'}
+                      </span>
+                      <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={() => revokeGuest(g.id)}>revoke</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="hint">
               Hardening active: renderer sandboxed, no Node access, all permission requests denied,
               external network calls from the UI blocked, plugin code isolated, keys stored 0600,

@@ -601,6 +601,114 @@ async function test(name, fn) {
     }
   });
 
+  console.log('\nWorkspace memory');
+  const { MemoryStore } = require('../shared/memory.cjs');
+
+  await test('memory persists project, notes and tasks across reloads', () => {
+    const f = path.join(tmp, 'ws', '.dev-studio', 'memory.json');
+    const m = new MemoryStore(f);
+    assert.strictEqual(m.contextBlock(), '', 'empty memory injects nothing into the prompt');
+
+    m.setProject({ name: 'Shop', summary: 'E-commerce back office', stack: 'React, Node 20', conventions: ['2-space indent', 'no secrets in repo'] });
+    const n = m.addNote({ title: 'Auth uses JWT', body: '15 min refresh tokens', tags: ['auth'] });
+    const t = m.addTask({ title: 'Add rate limiting to /api/login' });
+
+    const reloaded = new MemoryStore(f);
+    assert.strictEqual(reloaded.get().project.name, 'Shop');
+    assert.deepStrictEqual(reloaded.get().project.stack, ['React', 'Node 20']);
+    assert.strictEqual(reloaded.get().notes[0].id, n.id);
+
+    const ctx = reloaded.contextBlock();
+    assert.match(ctx, /Project memory/);
+    assert.match(ctx, /Auth uses JWT/);
+    assert.match(ctx, /Add rate limiting/);
+    assert.match(ctx, /no secrets in repo/);
+
+    reloaded.setTaskStatus(t.id, 'done');
+    assert.strictEqual(new MemoryStore(f).stats().done, 1);
+    assert.ok(!new MemoryStore(f).contextBlock().includes('[done]'), 'finished tasks leave the prompt');
+  });
+
+  await test('memory caps run history and clears by kind', () => {
+    const m = new MemoryStore(path.join(tmp, 'ws2', '.dev-studio', 'memory.json'));
+    for (let i = 0; i < 60; i += 1) m.recordRun({ prompt: `p${i}`, provider: 'builtin', actions: 0, chars: 10 });
+    assert.strictEqual(m.get().runs.length, 40, 'run history is capped');
+    m.addTask({ title: 'x' });
+    m.clear('tasks');
+    assert.strictEqual(m.get().tasks.length, 0);
+    m.addNote({ title: 'keep' });
+    m.clear('all');
+    assert.strictEqual(m.get().notes.length, 0);
+    assert.throws(() => m.addNote({}), /title/i);
+    assert.throws(() => m.addTask({}), /title/i);
+  });
+
+  await test('systemPrompt injects memory alongside plugin tools', () => {
+    const base = agent.systemPrompt();
+    const withMem = agent.systemPrompt('## Project memory\nStack: React, Electron');
+    assert.ok(!base.includes('Project memory'));
+    assert.match(withMem, /## Project memory/);
+    assert.ok(withMem.startsWith(base), 'memory is appended after the standard prompt');
+  });
+
+  await test('guest tokens: read-only by default, expiring, revocable', async () => {
+    const distDir = path.join(tmp, 'dist3');
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, 'index.html'), '<html>guest</html>');
+
+    const guests = [];
+    let lastUsed = null;
+    const impl = {
+      files: async () => ({ ok: true, tree: [] }),
+      writeFile: async () => ({ ok: true })
+    };
+    const b = await startBridge({
+      distDir,
+      impl,
+      mutating: ['writeFile'],
+      guests: () => guests,
+      onGuestUse: (id) => { lastUsed = id; }
+    });
+    const call = (tok, method, args = []) => fetch(`http://127.0.0.1:${b.port}/api/rpc`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-ds-token': tok },
+      body: JSON.stringify({ method, args })
+    });
+
+    try {
+      // no token at all
+      assert.strictEqual((await call('', 'files')).status, 401);
+
+      // read-only guest: reads fine, writes refused
+      const g1 = { id: 'g1', label: 'reviewer', token: 'guest-token-one', readOnly: true, expiresAt: Date.now() + 60_000 };
+      guests.push(g1);
+      assert.strictEqual((await call(g1.token, 'files')).status, 200);
+      const blocked = await call(g1.token, 'writeFile', ['a.txt', 'x']);
+      assert.strictEqual(blocked.status, 403);
+      assert.strictEqual((await blocked.json()).guest, true);
+      assert.strictEqual(lastUsed, 'g1', 'guest use is tracked');
+
+      // explicitly full-access guest may write
+      const g2 = { id: 'g2', label: 'pair', token: 'guest-token-two', readOnly: false, expiresAt: Date.now() + 60_000 };
+      guests.push(g2);
+      assert.strictEqual((await call(g2.token, 'writeFile', ['a.txt', 'x'])).status, 200);
+
+      // expired guest is rejected outright
+      g1.expiresAt = Date.now() - 1000;
+      assert.strictEqual((await call(g1.token, 'files')).status, 401);
+
+      // revoked guest is rejected outright
+      guests.length = 0;
+      assert.strictEqual((await call(g2.token, 'files')).status, 401);
+
+      // the owner token keeps working regardless
+      assert.strictEqual((await call(b.token, 'files')).status, 200);
+      assert.strictEqual((await call(b.token, 'writeFile', ['a.txt', 'x'])).status, 200);
+    } finally {
+      await b.stop();
+    }
+  });
+
   fs.rmSync(tmp, { recursive: true, force: true });
 
   console.log(`\n${pass} passed, ${fail} failed\n`);

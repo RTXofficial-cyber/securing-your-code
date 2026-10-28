@@ -56,15 +56,33 @@ function json(res, code, payload) {
   res.end(body);
 }
 
-function authOk(req, url, token) {
-  const provided = req.headers['x-ds-token'] || url.searchParams.get('ds_token') || url.searchParams.get('token');
-  if (typeof provided !== 'string') return false;
-  const a = Buffer.from(provided);
-  const b = Buffer.from(token);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+function safeEq(a, b) {
+  const x = Buffer.from(String(a));
+  const y = Buffer.from(String(b));
+  return x.length === y.length && crypto.timingSafeEqual(x, y);
 }
 
-async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutating = [], isReadOnly = () => false }) {
+/**
+ * Resolve the caller. The owner token (created with the bridge) has full
+ * rights; guest tokens are short-lived links you can hand out, and they are
+ * read-only unless you explicitly allowed writes.
+ */
+function resolveAuth(req, url, primary, guests) {
+  const provided = req.headers['x-ds-token'] || url.searchParams.get('ds_token') || url.searchParams.get('token');
+  if (typeof provided !== 'string' || !provided) return null;
+  if (safeEq(provided, primary)) return { kind: 'owner', readOnly: false };
+  const list = (typeof guests === 'function' ? guests() : guests) || [];
+  for (const g of list) {
+    if (!g || !g.token) continue;
+    if (g.expiresAt && Date.now() > g.expiresAt) continue;
+    if (safeEq(provided, g.token)) {
+      return { kind: 'guest', id: g.id, label: g.label, readOnly: g.readOnly !== false, expiresAt: g.expiresAt || null };
+    }
+  }
+  return null;
+}
+
+async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutating = [], isReadOnly = () => false, guests = () => [], onGuestUse = null }) {
   const token = crypto.randomBytes(32).toString('hex');
   const absDist = path.resolve(distDir);
   // Whitelist = the methods we were actually given. Nothing else is callable.
@@ -76,12 +94,14 @@ async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutat
     const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const isPage = url.pathname === '/' || url.pathname === '/index.html';
 
-    // The page itself and the RPC endpoint both require the token. Static assets
+    // The page itself and the RPC endpoint both require a token. Static assets
     // are same-origin and content-addressed, but we still require it everywhere.
-    if (!authOk(req, url, token)) {
-      json(res, 401, { ok: false, error: 'invalid or missing bridge token' });
+    const auth = resolveAuth(req, url, token, guests);
+    if (!auth) {
+      json(res, 401, { ok: false, error: 'invalid, expired or missing bridge token' });
       return;
     }
+    if (auth.kind === 'guest') { try { onGuestUse?.(auth.id); } catch {} }
 
     if (req.method === 'OPTIONS') { json(res, 200, { ok: true }); return; }
 
@@ -90,10 +110,11 @@ async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutat
         const raw = await readBody(req);
         const { method, args } = JSON.parse(raw || '{}');
         if (!allowed.has(method)) { json(res, 404, { ok: false, error: `unknown method: ${method}` }); return; }
-        if (mutatingSet.has(method) && isReadOnly()) {
+        if (mutatingSet.has(method) && (auth.readOnly || isReadOnly())) {
           json(res, 403, {
             ok: false,
             readOnly: true,
+            guest: auth.kind === 'guest',
             error: `Read-only Chrome session — "${method}" needs full access from the desktop app`
           });
           return;
@@ -133,7 +154,7 @@ async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutat
     }
   });
 
-  const wss = createWss ? createWss(server, token) : null;
+  const wss = createWss ? createWss(server, token, () => resolveGuestToken(guests)) : null;
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
@@ -159,4 +180,18 @@ async function startBridge({ distDir, impl, createWss, host = '127.0.0.1', mutat
   };
 }
 
-module.exports = { startBridge, MIME };
+// The terminal WebSocket accepts the owner token or any live guest token.
+function resolveGuestToken(guests) {
+  return (provided) => {
+    if (typeof provided !== 'string' || !provided) return null;
+    const list = (typeof guests === 'function' ? guests() : guests) || [];
+    for (const g of list) {
+      if (!g || !g.token) continue;
+      if (g.expiresAt && Date.now() > g.expiresAt) continue;
+      if (safeEq(provided, g.token)) return { kind: 'guest', id: g.id, readOnly: g.readOnly !== false };
+    }
+    return null;
+  };
+}
+
+module.exports = { startBridge, resolveAuth, safeEq, MIME };

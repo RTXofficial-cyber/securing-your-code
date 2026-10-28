@@ -111,8 +111,8 @@ path traversal is blocked at the IPC layer.
 
 ```
 electron/       main process: window, IPC, terminal, sandboxing, bridge.cjs
-shared/         providers, agent, orchestrator, plugins.cjs, lock.cjs (PIN + audit)
-src/            React renderer: landing, setup, studio, lock screen
+shared/         providers, agent, orchestrator, plugins.cjs, lock.cjs, memory.cjs
+src/            React renderer: landing, setup, studio, lock screen, memory panel
 plugins/        official plugins (ollama, openrouter, git-tools)
 resources/      app icon
 test/           logic tests (run.cjs) + component tests (ui/*.test.jsx)
@@ -194,14 +194,45 @@ Dev Studio (.exe)  ── owns ──▶  C:\your\workspace   ◀── same fil
     `403 read-only Chrome session` message: writes, deletes, shell commands,
     AI runs, key changes, plugin toggles, permission changes, PIN changes.
     Switch modes live; the tab shows a banner saying which one it is in.
+- **Guest links** (Settings → Security): mint a short-lived URL for another
+  Chrome tab on this PC — pick a label, a lifetime (15 min / 1 h / 8 h / 24 h)
+  and whether it is **read-only** (the default) or full access. The list shows
+  expiry and last-used time; **revoke** kills a link instantly, and expired
+  links are rejected with 401. Tokens are never shown again after creation
+  except in the one URL you copy, and only the desktop app can mint or revoke
+  them (a browser tab cannot create more guests).
 - Close it any time: Settings → Security → `stop`, or quit the app. Nothing is
   left listening when the app exits, and every start/open/mode-change is audited.
+
+## Project memory — the AI remembers your codebase
+
+Big projects break chat-style AI: every new run starts from zero. Dev Studio
+keeps persistent, editable context per workspace in
+`<workspace>/.dev-studio/memory.json` (open it with **✎** in the activity bar
+or the memory chip in the status bar):
+
+- **Project** — name, one-paragraph summary, stack, and conventions the models
+  must always follow.
+- **Decisions & notes** — what is already settled, so the team builds on it
+  instead of re-litigating it.
+- **Task list** — `todo / doing / done`; only open tasks are injected, so
+  "continue where we left off" actually works.
+- **Run history** — the last 40 agent/team runs (prompt, provider, actions).
+
+All of it is injected into the **system prompt of the solo agent** and into
+**every role of the AI team** (Researcher, Architect, Coder and the Reviewer —
+which re-reads it after the code was written). The panel shows exactly
+*"What the AI actually receives"*, capped at 2,500 characters so it never eats
+your context window.
+
+It is plain JSON inside your project: commit it and your teammates — and every
+model you connect — inherit the same understanding of the codebase.
 
 ## Testing
 
 ```bash
-npm run test:logic   # 51 pure-Node tests: agent, providers, plugins, lock, bridge
-npm run test:ui      # 7 React component tests (vitest + jsdom + Testing Library)
+npm run test:logic   # 57 pure-Node tests: agent, providers, plugins, lock, memory, bridge
+npm run test:ui      # 10 React component tests (vitest + jsdom + Testing Library)
 npm test             # both of the above
 npm run test:e2e     # real Chrome (Playwright) against the production build
 ```

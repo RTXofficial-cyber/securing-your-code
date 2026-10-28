@@ -89,8 +89,10 @@ async function callRole(provider, roleId, prompt, context) {
  * Run the full pipeline. Returns { steps, actionResults, summary }.
  * A failing step never aborts the run — it is recorded and the team moves on.
  */
-async function runEnsemble({ userText, overrides = {}, ws, permissions = { runCommands: true, writeFiles: true } }) {
-  const context = projectContext(ws);
+async function runEnsemble({ userText, overrides = {}, ws, permissions = { runCommands: true, writeFiles: true }, memory = '' }) {
+  const memBlock = String(memory || '').trim();
+  const withMemory = (ctx) => (memBlock ? `${ctx}\n\n${memBlock}` : ctx);
+  const context = withMemory(projectContext(ws));
   const steps = [];
   let actionResults = [];
   let research = '';
@@ -163,7 +165,7 @@ async function runEnsemble({ userText, overrides = {}, ws, permissions = { runCo
         .join('\n\n');
       const r = await callRole(provider, 'review',
         `Review the team's work for correctness, security and missing edge cases. If something must change, emit fix-up action blocks; otherwise state "APPROVED" and list 2-3 concrete improvements.\n\nCODE OUTPUT:\n${agent.stripActions(codeOut).slice(0, 4000)}\n\nRUN LOG:\n${runLog || '(nothing was run)'}\n\nREQUEST: ${userText}`,
-        projectContext(ws)); // re-read context AFTER the coder wrote files
+        withMemory(projectContext(ws))); // re-read context AFTER the coder wrote files
       record(role, provider, r);
 
       let fixes = agent.parseActions(r.output);

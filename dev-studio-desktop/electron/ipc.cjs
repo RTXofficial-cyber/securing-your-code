@@ -11,8 +11,9 @@ const agent = require('../shared/agent.cjs');
 const orchestrator = require('../shared/orchestrator.cjs');
 const { PluginManager } = require('../shared/plugins.cjs');
 const { LockManager } = require('../shared/lock.cjs');
+const { MemoryStore } = require('../shared/memory.cjs');
 
-const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full' };
+const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full', bridgeGuests: [], memory: null };
 function getState() {
   return state;
 }
@@ -253,7 +254,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
       return { ok: false, error: 'messages array is required' };
     }
     try {
-      const full = agentMode ? [{ role: 'system', content: agent.systemPrompt() }, ...messages] : messages;
+      const full = agentMode ? [{ role: 'system', content: agent.systemPrompt(memCtx()) }, ...messages] : messages;
       const reply = await providers.chat(provider, model, full);
       let actionResults = [];
       let skipped = [];
@@ -271,6 +272,12 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         if (actions.length) actionResults = await agent.executeActions(actions, ws);
       }
       state.lock?.audit('agent.run', { provider, actions: actionResults.length });
+      try {
+        memoryStore().recordRun({
+          prompt: messages.filter((m) => m.role === 'user').pop()?.content || '',
+          provider, actions: actionResults.length, chars: (reply || '').length
+        });
+      } catch {}
       return { ok: true, reply: agent.stripActions(reply), raw: reply, actionResults, skipped };
     } catch (err) {
       return { ok: false, error: err.message, code: err.code || 'ERROR' };
@@ -288,9 +295,11 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         userText,
         overrides,
         ws,
-        permissions: state.permissions
+        permissions: state.permissions,
+        memory: memCtx()
       });
       state.lock?.audit('ensemble.run', { steps: r.steps.length, actions: r.actionResults.length });
+      try { memoryStore().recordRun({ prompt: userText, provider: 'team', actions: r.actionResults.length, chars: (r.summary || '').length }); } catch {}
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, error: err.message };
@@ -359,6 +368,42 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return { ok: true };
   });
 
+  // ---------- workspace memory (persistent project context) ----------
+  // Lives at <workspace>/.dev-studio/memory.json so it travels with the project.
+  function memoryStore() {
+    const file = path.join(state.rootRef.value, '.dev-studio', 'memory.json');
+    if (!state.memory || state.memory.file !== file) state.memory = new MemoryStore(file);
+    return state.memory;
+  }
+  function memCtx() {
+    try { return memoryStore().contextBlock(); } catch { return ''; }
+  }
+  function memResult(fn) {
+    try { return { ok: true, ...fn(memoryStore()) }; }
+    catch (e) { return { ok: false, error: e.message }; }
+  }
+
+  handle('memory:get', () => memResult((m) => ({ memory: m.get(), stats: m.stats(), context: m.contextBlock() })));
+  handle('memory:project', (_e, patch) => memResult((m) => ({ memory: m.setProject(patch || {}) })));
+  handle('memory:addNote', (_e, note) => memResult((m) => {
+    const n = m.addNote(note || {});
+    lock.audit('memory.note.add', { id: n.id, title: n.title });
+    return { note: n };
+  }));
+  handle('memory:updateNote', (_e, id, patch) => memResult((m) => ({ note: m.updateNote(id, patch || {}) })));
+  handle('memory:removeNote', (_e, id) => memResult((m) => ({ removed: m.removeNote(id) })));
+  handle('memory:addTask', (_e, task) => memResult((m) => {
+    const t = m.addTask(task || {});
+    lock.audit('memory.task.add', { id: t.id, title: t.title });
+    return { task: t };
+  }));
+  handle('memory:setTask', (_e, id, status) => memResult((m) => ({ task: m.setTaskStatus(id, status) })));
+  handle('memory:removeTask', (_e, id) => memResult((m) => ({ removed: m.removeTask(id) })));
+  handle('memory:clear', (_e, kind) => memResult((m) => {
+    lock.audit('memory.clear', { kind: kind || 'all' });
+    return { memory: m.clear(kind) };
+  }));
+
   // ---------- loopback bridge: same workspace, opened in Chrome ----------
   // Method names mirror the renderer API (window.studio) exactly, so one UI
   // runs on both surfaces. Channels that only make sense on the desktop
@@ -394,7 +439,17 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     terminalSend: 'terminal:send',
     terminalKill: 'terminal:kill',
     bridgeMode: 'bridge:mode',
-    bridgeSetMode: 'bridge:setMode'
+    bridgeSetMode: 'bridge:setMode',
+    memoryGet: 'memory:get',
+    memoryProject: 'memory:project',
+    memoryAddNote: 'memory:addNote',
+    memoryUpdateNote: 'memory:updateNote',
+    memoryRemoveNote: 'memory:removeNote',
+    memoryAddTask: 'memory:addTask',
+    memorySetTask: 'memory:setTask',
+    memoryRemoveTask: 'memory:removeTask',
+    memoryClear: 'memory:clear',
+    bridgeGuestList: 'bridge:guestList'
   };
 
   // Methods a read-only Chrome tab must NOT be able to call.
@@ -403,7 +458,9 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     'chat', 'ensemble', 'pluginSetEnabled',
     'terminalSend', 'terminalKill',
     'lockSet', 'lockChange', 'lockClear', 'lockAutoLock', 'auditClear',
-    'bridgeSetMode'
+    'bridgeSetMode',
+    'memoryProject', 'memoryAddNote', 'memoryUpdateNote', 'memoryRemoveNote',
+    'memoryAddTask', 'memorySetTask', 'memoryRemoveTask', 'memoryClear'
   ];
 
   const bridgeImpl = {};
@@ -415,7 +472,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     };
   }
 
-  function createWss(server, bridgeToken) {
+  function createWss(server, bridgeToken, guestLookup) {
     const { WebSocketServer } = require('ws');
     const wss = new WebSocketServer({ noServer: true });
     wss.clients = new Set();
@@ -426,7 +483,9 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         const t = u.searchParams.get('token') || '';
         const a = Buffer.from(String(t));
         const b = Buffer.from(bridgeToken);
-        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        const isOwner = a.length === b.length && crypto.timingSafeEqual(a, b);
+        const guest = isOwner ? null : guestLookup?.(t);
+        if (!isOwner && !guest) {
           socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
           socket.destroy();
           return;
@@ -455,7 +514,12 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
       impl: bridgeImpl,
       createWss,
       mutating: mutatingMethods,
-      isReadOnly: () => state.bridgeMode === 'readonly'
+      isReadOnly: () => state.bridgeMode === 'readonly',
+      guests: () => state.bridgeGuests,
+      onGuestUse: (id) => {
+        const g = state.bridgeGuests.find((x) => x.id === id);
+        if (g) g.lastUsed = Date.now();
+      }
     });
     state.bridge = bridge;
     lock.audit('bridge.start', { port: bridge.port, mode: state.bridgeMode });
@@ -489,6 +553,57 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     state.bridge = null;
     lock.audit('bridge.stop', { port });
     return { ok: true, running: false };
+  });
+
+  // ---------- expiring guest links ----------
+  const sanitizeGuest = (g) => ({
+    id: g.id, label: g.label, readOnly: g.readOnly,
+    createdAt: g.createdAt, expiresAt: g.expiresAt, lastUsed: g.lastUsed,
+    expired: Boolean(g.expiresAt && Date.now() > g.expiresAt)
+  });
+
+  handle('bridge:guestList', () => ({
+    ok: true,
+    running: !!state.bridge,
+    port: state.bridge?.port || null,
+    guests: state.bridgeGuests.map(sanitizeGuest)
+  }));
+
+  handle('bridge:guestCreate', async (_e, opts = {}) => {
+    const r = await ensureBridge();
+    if (!r.ok) return r;
+    const minutes = Math.min(7 * 24 * 60, Math.max(1, Number(opts.minutes) || 60));
+    const guest = {
+      id: crypto.randomBytes(4).toString('hex'),
+      label: String(opts.label || 'guest').slice(0, 60),
+      token: crypto.randomBytes(24).toString('hex'),
+      readOnly: opts.readOnly !== false,
+      createdAt: Date.now(),
+      expiresAt: Date.now() + minutes * 60_000,
+      lastUsed: null
+    };
+    state.bridgeGuests.push(guest);
+    lock.audit('bridge.guest.create', { id: guest.id, label: guest.label, minutes, readOnly: guest.readOnly });
+    return {
+      ok: true,
+      guest: sanitizeGuest(guest),
+      url: `http://127.0.0.1:${state.bridge.port}/?ds_token=${guest.token}`
+    };
+  });
+
+  handle('bridge:guestRevoke', (_e, id) => {
+    const before = state.bridgeGuests.length;
+    state.bridgeGuests = state.bridgeGuests.filter((g) => g.id !== id);
+    const removed = state.bridgeGuests.length !== before;
+    if (removed) lock.audit('bridge.guest.revoke', { id });
+    return { ok: removed, removed, guests: state.bridgeGuests.map(sanitizeGuest) };
+  });
+
+  handle('bridge:guestPrune', () => {
+    const now = Date.now();
+    const before = state.bridgeGuests.length;
+    state.bridgeGuests = state.bridgeGuests.filter((g) => !g.expiresAt || g.expiresAt > now);
+    return { ok: true, removed: before - state.bridgeGuests.length, guests: state.bridgeGuests.map(sanitizeGuest) };
   });
 
   handle('bridge:state', () => ({

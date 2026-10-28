@@ -5,6 +5,7 @@ import EditorPane from './Editor.jsx';
 import TerminalPane from './Terminal.jsx';
 import ChatPane from './Chat.jsx';
 import Settings from './Settings.jsx';
+import MemoryPanel from './Memory.jsx';
 
 const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
 
@@ -29,6 +30,8 @@ export default function Studio({
   const [tree, setTree] = useState([]);
   const [workspace, setWorkspace] = useState(info?.workspace || '');
   const [settingsOpen, setSettingsOpen] = useState(Boolean(settingsTarget));
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [memStats, setMemStats] = useState(null);
   const [tick, setTick] = useState(0);
 
   const centerRef = useRef(null);
@@ -45,6 +48,15 @@ export default function Studio({
     } catch (e) { console.error(e); }
   }, []);
   useEffect(() => { refresh(); }, [refresh, tick]);
+
+  // ---- workspace memory stats (for the status bar) ----
+  const loadMemStats = useCallback(async () => {
+    try {
+      const r = await api.memoryGet?.();
+      if (r?.ok) setMemStats(r.stats);
+    } catch {}
+  }, []);
+  useEffect(() => { loadMemStats(); }, [loadMemStats, tick]);
 
   // ---- loopback bridge: open THIS workspace in Chrome ----
   const [bridge, setBridge] = useState(null);
@@ -146,6 +158,7 @@ export default function Studio({
         <div className="ab-spacer" />
         <button className="abtn" title="Setup & permissions" onClick={onSetup}>⚙</button>
         <button className="abtn" title="Settings & API keys" onClick={() => setSettingsOpen(true)}>⚿</button>
+        <button className={`abtn ${memoryOpen ? 'on' : ''}`} title="Project memory (persistent AI context)" onClick={() => setMemoryOpen(true)}>✎</button>
         {isDesktop && (
           <button
             className={`abtn ${bridge?.running ? 'on' : ''}`}
@@ -234,10 +247,17 @@ export default function Studio({
         <span className="sb-item">{info?.packaged ? 'packaged build' : isBridge ? `chrome bridge :${bridge?.port || ''}${bridge?.mode === 'readonly' ? ' read-only' : ''}` : isDesktop ? 'desktop dev' : 'browser preview'}</span>
         {isDesktop && <button className="sb-item" onClick={openInChrome} title="Open this workspace in Chrome">◎ open in chrome{bridge?.mode === 'readonly' ? ' (read-only)' : ''}</button>}
         <button className="sb-item" onClick={onSetup}>setup &amp; .exe</button>
+        <button className="sb-item" onClick={() => setMemoryOpen(true)} title="Project memory — what the AI remembers">
+          ✎ {memStats ? `${memStats.notes} notes · ${memStats.open} open` : 'memory'}
+        </button>
         <button className="sb-item" onClick={onLock} title="Lock the app now"> lock</button>
         <button className="sb-item" onClick={onToggleTheme}>{theme === 'light' ? '☾ dark' : '☀ light'}</button>
         <span className="sb-item">v{info?.version || '1.0.0'}</span>
       </div>
+
+      {memoryOpen && (
+        <MemoryPanel workspace={workspace} onClose={() => { setMemoryOpen(false); loadMemStats(); }} />
+      )}
 
       {settingsOpen && (
         <Settings

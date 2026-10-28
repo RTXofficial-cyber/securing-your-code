@@ -172,15 +172,20 @@ function hasTool(name) {
 }
 
 /** System prompt + a live list of plugin-registered tools, so the AI knows they exist. */
-function systemPrompt() {
+function systemPrompt(extra) {
   const tools = listTools();
-  if (!tools.length) return SYSTEM_PROMPT;
-  return (
-    SYSTEM_PROMPT +
-    '\n\nAdditional actions provided by installed plugins:\n' +
-    tools.map((t) => `- ${t.name}  ${t.description}`).join('\n') +
-    '\nEmit them exactly like the built-in actions, e.g. ```action:git_commit\n{"message":"add login"}\n```'
-  );
+  let out = SYSTEM_PROMPT;
+  if (tools.length) {
+    out +=
+      '\n\nAdditional actions provided by installed plugins:\n' +
+      tools.map((t) => `- ${t.name}  ${t.description}`).join('\n') +
+      '\nEmit them exactly like the built-in actions, e.g. ```action:git_commit\n{"message":"add login"}\n```';
+  }
+  // Persistent workspace memory (project summary, conventions, open tasks,
+  // decisions) so a run today knows what was decided last week.
+  const mem = String(extra || '').trim();
+  if (mem) out += '\n\n' + mem;
+  return out;
 }
 
 module.exports = {

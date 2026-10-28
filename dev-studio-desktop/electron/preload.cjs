@@ -61,7 +61,23 @@ const studio = {
   bridgeStop: () => ipcRenderer.invoke('bridge:stop'),
   bridgeState: () => ipcRenderer.invoke('bridge:state'),
   bridgeMode: () => ipcRenderer.invoke('bridge:mode'),
-  bridgeSetMode: (mode) => ipcRenderer.invoke('bridge:setMode', mode)
+  bridgeSetMode: (mode) => ipcRenderer.invoke('bridge:setMode', mode),
+
+  // ---- expiring guest links (desktop only creates/revokes them) ----
+  bridgeGuestList: () => ipcRenderer.invoke('bridge:guestList'),
+  bridgeGuestCreate: (opts) => ipcRenderer.invoke('bridge:guestCreate', opts),
+  bridgeGuestRevoke: (id) => ipcRenderer.invoke('bridge:guestRevoke', id),
+
+  // ---- workspace memory (persistent project context for the AI) ----
+  memoryGet: () => ipcRenderer.invoke('memory:get'),
+  memoryProject: (patch) => ipcRenderer.invoke('memory:project', patch),
+  memoryAddNote: (note) => ipcRenderer.invoke('memory:addNote', note),
+  memoryUpdateNote: (id, patch) => ipcRenderer.invoke('memory:updateNote', id, patch),
+  memoryRemoveNote: (id) => ipcRenderer.invoke('memory:removeNote', id),
+  memoryAddTask: (task) => ipcRenderer.invoke('memory:addTask', task),
+  memorySetTask: (id, status) => ipcRenderer.invoke('memory:setTask', id, status),
+  memoryRemoveTask: (id) => ipcRenderer.invoke('memory:removeTask', id),
+  memoryClear: (kind) => ipcRenderer.invoke('memory:clear', kind)
 };
 
 contextBridge.exposeInMainWorld('studio', studio);
