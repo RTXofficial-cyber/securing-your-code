@@ -269,6 +269,33 @@ machine unless you allow it), the audit trail, and working with no key at all.
 The app translates all of these raw HTTP/JSON failures into plain guidance
 with the exact next step (`friendlyProviderError`).
 
+## GRAND THEFT MONO — "make a game like GTA" actually works now
+
+Ask the built-in AI for `make me a game like gta` (or open world / crime /
+mafia / heist / police chase / driving game) and it scaffolds a complete
+mini open-world crime game — zero dependencies, one file, headless-proven:
+
+- **Open city** 2400×1800 with road grid, dashed lanes, buildings with
+  window lights, camera follow and collision push-out
+- **Vehicles**: 16 parked cars you can steal (X/E), arcade driving physics
+  (acceleration, speed-sensitive steering, handbrake, crash response)
+- **Pedestrians** that wander, flee from wanted players… and can be run
+  over — which is a crime
+- **5-star WANTED system**: crimes raise stars, police cruisers spawn
+  off-camera and chase you; in cars they ram you (both take damage,
+  destroyed cruisers cost another star), on foot they pull up, stop and
+  **BUST** you; escape their radius for 7 s and stars cool off
+- **Courier missions**: reach the P marker, deliver to D against a
+  distance-scaled timer, escalating cash rewards
+- **Minimap** with buildings, markers, flashing cop dots, and the player
+
+Honest scale note shipped with it: GTA VI is ~2000 people × a decade. This
+is the same *systems* — open world, vehicles, wanted level, police AI,
+missions, minimap — distilled into ~350 lines that provably run (the test
+suite plays it headlessly for 600 frames, then white-boxes the hit-and-run,
+cop spawns and the arrest). A KB topic ("how are GTA-style games built")
+explains the seven pillars for question-shaped asks.
+
 ## Mission experience — the agent learns from its own history
 
 Every Deep/Auto mission is recorded in

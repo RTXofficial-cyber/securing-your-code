@@ -493,6 +493,14 @@ async function test(name, fn) {
     const r2 = tool.run({ genre: 'platformer', dir: 'game2' }, ctx);
     assert.strictEqual(r2.genre, 'platformer');
     assert.ok(written['game2/game.js'].includes('MONO JUMP'));
+    // city preset scaffolds the mini open-world game
+    const r3 = tool.run({ genre: 'city', dir: 'game3' }, ctx);
+    assert.strictEqual(r3.genre, 'city');
+    assert.ok(written['game3/game.js'].includes('__cityGame'), 'city template landed intact');
+    assert.ok(written['game3/index.html'].includes('GRAND THEFT MONO'));
+    // genre word-matching routes GTA-ish asks to city
+    assert.strictEqual(entry.genreOf('a gta clone'), 'city');
+    assert.strictEqual(entry.genreOf('open world crime game'), 'city');
     const list = entry.tools.find((t) => t.name === 'game_list');
     ctx.ws.tree = () => [{ name: 'game', path: 'game', type: 'dir', children: [
       { name: 'game.js', path: 'game/game.js', type: 'file' },
@@ -516,12 +524,54 @@ async function test(name, fn) {
     const a3 = agent.parseActions(await mk('make a game'));
     assert.ok(a3.some((a) => a.type === 'game_new' && a.dir === 'game'));
     assert.ok(a3.some((a) => a.type === 'game_check'), 'game is verified after scaffolding');
+    const gtaReply = await mk('make me a game like gta');
+    assert.match(gtaReply, /GRAND THEFT MONO/);
+    const a4 = agent.parseActions(gtaReply);
+    assert.ok(a4.some((a) => a.type === 'game_new' && a.genre === 'city'));
+    // question-shaped GTA query hits the knowledge base, not the scaffold
+    const kb = await mk('how are gta style open-world games made?');
+    assert.match(kb, /pillars|streamed world/i);
+    assert.ok(!agent.parseActions(kb).some((a) => a.type === 'game_new'), 'questions must not scaffold');
+  });
+
+  await test('city (mini-GTA) mechanics work under the hood', () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const city = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'city.js'), 'utf8');
+    const sb = runGame({ engineSrc: engine, gameSrc: city, frames: 600 });
+    const G = sb.__cityGame;
+    assert.ok(G, 'test hook exposed');
+    assert.ok(G.buildings.length > 20 && G.cars.length >= 12 && G.peds.length >= 12);
+    assert.equal(typeof G.wanted, 'number');
+    // hit-and-run raises the wanted level
+    G.state = 'play';
+    const car = G.cars[0];
+    G.player.inCar = car; G.player.x = car.x; G.player.y = car.y;
+    car.angle = 0; car.speed = 200;
+    const ped = G.peds[0]; ped.x = car.x + 18; ped.y = car.y;
+    const w0 = G.wanted;
+    G.scene.update(G, 1 / 60);
+    assert.ok(G.wanted > w0, 'running over a ped is a crime');
+    // wanted level brings the police
+    G.wanted = 4; G.spawnT = 0.05;
+    for (let i = 0; i < 150; i += 1) G.scene.update(G, 1 / 60);
+    assert.ok(G.cops.length >= 1, 'cops spawn for wanted players');
+    // on foot and cornered -> BUSTED (the ramming phase may have WASTED him: reset,
+    // and stage it at an open intersection so building push-out cannot flake)
+    G.state = 'play'; G.player.hp = 100;
+    G.player.inCar = null; G.player.arrestT = 0;
+    G.player.x = 848; G.player.y = 848;
+    G.cops.length = 0;
+    G.cops.push({ x: 860, y: 848, w: 46, h: 24, angle: Math.PI, speed: 0, hp: 50, flash: 0 });
+    for (let i = 0; i < 90; i += 1) G.scene.update(G, 1 / 60);
+    assert.equal(G.state, 'over', 'arrest ends the run');
+    assert.match(String(G._overReason || ''), /BUSTED/);
   });
 
   await test('every shipped game runs 600 simulated frames headlessly', () => {
     const { runGame } = require('./harness/headless.cjs');
     const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
-    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed']) {
+    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed', 'city']) {
       const game = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', `${t}.js`), 'utf8');
       runGame({ engineSrc: engine, gameSrc: game, frames: 600 }); // throws on any runtime error
     }

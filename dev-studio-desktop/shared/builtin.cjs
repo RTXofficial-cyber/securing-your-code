@@ -357,6 +357,11 @@ function mathAnswer(t) {
 }
 
 const KB = [
+  { m: /\bgta\b|grand theft|open.?world|how are (?:big|aaa) games made/, t: 'How GTA-style open-world games are built', b: [
+    'The honest scale: GTA VI is ~2000 people × ~10 years × billions of dollars. No engine file changes that — but the SYSTEMS are learnable, and Dev Studio ships a working miniature of them (`GRAND THEFT MONO`).',
+    'The seven pillars: (1) a streamed world (only nearby blocks load/draw), (2) vehicles with arcade physics (speed, steering, collision response), (3) NPC schedules (pedestrians wander, flee, die), (4) a wanted level that escalates police response, (5) mission scripting (pickup → timer → delivery → reward), (6) a minimap/HUD layer, (7) save + restart loops.',
+    'Each pillar is small on its own — the magic is that they run TOGETHER at 60fps. That is exactly what the city template proves: ~350 lines, zero dependencies, headless-tested.',
+    'Ask me "make a game like gta" and you get that whole stack, playable, in game/.' ] },
   { m: /recurse|recursion|factorial using itself/, t: 'Recursion', b: [
     'A function that calls itself, with a **base case** that stops it.',
     '```js\nfunction fact(n){ return n <= 1 ? 1 : n * fact(n - 1); }\n```',
@@ -1005,7 +1010,9 @@ async function chat(model, messages) {
     // A bare request ("make a platformer") gets the hand-tuned template.
     // Anything with extra wishes gets a composed game built from its DNA.
     const bare = text.split(/\s+/).length <= 5 && !/with|and|add|plus|neon|zombie|pipe|flappy|magnet|shield|rapid|dash|bomb/.test(text);
-    const preset = !bare ? null
+    const cityAsk = /\bgta\b|grand theft|open.?world|crime (?:city|game)|mafia|heist|police chase|car game|driving game/.test(text);
+    const preset = cityAsk ? 'city'
+      : !bare ? null
       : /\bplatformer\b/.test(text) ? 'platformer'
       : /\brunner\b/.test(text) ? 'runner'
       : /space shooter|\bshmup\b/.test(text) ? 'shmup'
@@ -1019,7 +1026,9 @@ async function chat(model, messages) {
         : `Plan: (1) read your request into a game DNA — ${dna} — (2) compose that exact game, (3) verify it runs.`,
       action('game_new', preset ? { genre: preset, dir: 'game' } : { spec, dir: 'game' }),
       action('game_check', { dir: 'game' }),
-      preset
+      preset === 'city'
+        ? 'Done — **GRAND THEFT MONO** is in **game/**: a drivable open city (2400×1800), 16 cars you can steal (X/E), wandering pedestrians, courier missions with timers, a 5-star WANTED system with police cars that spawn and chase you, arrests on foot, rammings in cars, minimap, and a full game-over/restart loop. Press **▶ play**. Honest scale note: real GTA is thousands of people × a decade — this is the same SYSTEMS (open world, vehicles, wanted level, police AI, missions) distilled into one zero-dependency file that actually runs.'
+        : preset
         ? `Done — a complete game is in **game/**. Press **▶ play** (or open \`game/index.html\`).`
         : `Done — **${spec.title}** is in **game/** with exactly the mechanics you asked for (${dna}). Press **▶ play** or open \`game/index.html\`. Change anything ("add bombs", "make it neon", "zombies instead") and I will recompose it.`
     ].join('\n\n');

@@ -1,7 +1,7 @@
 {
   "name": "dev-studio",
   "productName": "Dev Studio",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "description": "Dev Studio \u2014 AI development studio for Windows: multi-model AI team, real terminal, official plugins, PIN-locked and audited, with a loopback bridge that opens the same workspace in Chrome.",
   "author": {
     "name": "Dev Studio",

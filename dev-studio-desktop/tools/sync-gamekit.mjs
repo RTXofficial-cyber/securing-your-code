@@ -24,6 +24,7 @@ const names = templates.map((t) => t.replace(/\.js$/, ''));
 const meta = {
   titles: {
     arena: 'VOID ARENA — twin-stick survival',
+    city: 'GRAND THEFT MONO — mini open-world crime city',
     platformer: 'MONO JUMP — precision platformer',
     shmup: 'STARFALL — vertical shooter',
     runner: 'LINE RUNNER — endless runner',
