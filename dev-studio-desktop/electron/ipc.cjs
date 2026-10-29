@@ -16,6 +16,7 @@ const autopilot = require('../shared/autopilot.cjs');
 const builtinBrain = require('../shared/builtin.cjs');
 const websearch = require('../shared/websearch.cjs');
 const deep = require('../shared/deep.cjs');
+const { ExperienceStore } = require('../shared/experience.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full', bridgeGuests: [], memory: null };
 function getState() {
@@ -376,11 +377,21 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return { ok: true };
   });
 
+  // ---------- mission experience: agents learn from past runs ----------
+  // Lives at <workspace>/.dev-studio/experience.json (travels with the project).
+  function experienceStore() {
+    const file = path.join(state.rootRef.value, '.dev-studio', 'experience.json');
+    if (!state.experience || state.experience.file !== file) state.experience = new ExperienceStore(file);
+    return state.experience;
+  }
+
   // ---------- autopilot: autonomous plan -> execute -> verify -> fix ----------
   handle('auto:run', async (_e, payload) => {
     const { goal, provider, model, maxIterations } = payload || {};
     if (!goal || typeof goal !== 'string') return { ok: false, error: 'goal is required' };
     try {
+      const exp = experienceStore();
+      const prior = exp.contextBlock(goal);
       const r = await autopilot.runMission({
         goal,
         provider: provider || 'builtin',
@@ -388,10 +399,16 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         ws,
         permissions: state.permissions,
         chat: (pr, md, messages) => providers.chat(pr, md, messages),
-        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3))
+        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3)),
+        prior
       });
-      lock.audit('auto.run', { goal: goal.slice(0, 120), ok: r.ok, iterations: r.iterations.length, files: r.files.length });
-      return { ok: true, ...r };
+      exp.record({
+        goal, engine: 'auto', ok: r.ok, files: r.files,
+        failures: r.error ? [String(r.error).slice(0, 300)] : [],
+        lesson: `${r.summary || 'mission'}; verify ${r.ok ? 'passed' : 'FAILED: ' + String(r.error || '').slice(0, 120)}`
+      });
+      lock.audit('auto.run', { goal: goal.slice(0, 120), ok: r.ok, iterations: r.iterations.length, files: r.files.length, prior: prior ? prior.split('\n').length - 1 : 0 });
+      return { ok: true, priorCount: prior ? prior.split('\n').length - 1 : 0, ...r };
     } catch (e) {
       return { ok: false, error: e.message };
     }
@@ -409,9 +426,10 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         ws,
         permissions: state.permissions,
         chat: (pr, md, messages) => providers.chat(pr, md, messages),
-        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3))
+        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3)),
+        experience: experienceStore()
       });
-      lock.audit('deep.run', { goal: goal.slice(0, 120), mode: r.mode, engine: r.engine || 'mission', ok: r.ok, steps: r.react ? r.react.steps.length : 0, checks: r.checks.length, files: r.mission ? r.mission.files.length : 0 });
+      lock.audit('deep.run', { goal: goal.slice(0, 120), mode: r.mode, engine: r.engine || 'mission', ok: r.ok, prior: r.priorCount || 0, steps: r.react ? r.react.steps.length : 0, checks: r.checks.length, files: r.mission ? r.mission.files.length : 0 });
       return { ok: true, ...r };
     } catch (e) {
       return { ok: false, error: e.message };

@@ -269,6 +269,28 @@ machine unless you allow it), the audit trail, and working with no key at all.
 The app translates all of these raw HTTP/JSON failures into plain guidance
 with the exact next step (`friendlyProviderError`).
 
+## Mission experience — the agent learns from its own history
+
+Every Deep/Auto mission is recorded in
+`<workspace>/.dev-studio/experience.json`: goal, engine, outcome, files,
+failures and a one-line lesson. Before the next mission, the most relevant
+entries (token-overlap ranked, top 3) are injected into the planner prompt /
+ReAct system prompt:
+
+```
+Lessons from previous missions in THIS workspace (use them, do not repeat
+old mistakes):
+- "build me a website about tea" [mission, FAILED]: script.js had a stray
+  comma; run node --check before done
+```
+
+So the agent starts with scar tissue instead of amnesia — the same trick a
+senior engineer has over a junior one. The file travels with the project,
+caps at 40 entries (newest first), survives reloads, and `clear()` (or
+clearing just failures/successes) is safe at any time. Chat transcripts show
+`[prior] N purane mission(s) ke lessons inject hue`, and `deep.run`/`auto.run`
+audit entries record how many lessons rode along.
+
 ## ReAct agent — connected models work step by step, not one-shot
 
 When a real model (OpenAI/GPT-6 Astra, Claude, Gemini, Groq, OpenRouter,

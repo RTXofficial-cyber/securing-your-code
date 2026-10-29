@@ -57,10 +57,11 @@ async function deepRun(opts) {
     permissions = { runCommands: true, writeFiles: true },
     chat,
     fetchImpl = null,
-    maxIterations = 3
+    maxIterations = 3,
+    experience = null
   } = opts || {};
 
-  const out = { goal, provider, mode: null, ok: false, research: null, answer: null, mission: null, checks: [], error: null };
+  const out = { goal, provider, mode: null, ok: false, research: null, answer: null, mission: null, checks: [], error: null, priorCount: 0 };
   const isBuild = BUILD.test(String(goal || ''));
 
   // ---- 1. RESEARCH (only when the goal wants the web) ----
@@ -99,8 +100,10 @@ async function deepRun(opts) {
     return out;
   }
 
-  // ---- 3. BUILD path: research context rides into the planner prompt ----
+  // ---- 3. BUILD path: research context + past-mission lessons ride along ----
   out.mode = 'build';
+  const prior = experience && typeof experience.contextBlock === 'function' ? experience.contextBlock(String(goal)) : '';
+  out.priorCount = prior ? prior.split('\n').length - 1 : 0;
   let enriched = String(goal);
   if (research && research.results && research.results.length) {
     enriched += '\n\nResearch context from the live web (use only if relevant):\n'
@@ -115,7 +118,8 @@ async function deepRun(opts) {
     const r = await react.runAgent({
       goal: String(goal), provider, model, ws, permissions, chat, fetchImpl,
       maxSteps: Number(opts.maxSteps) || 8,
-      researchContext
+      researchContext,
+      prior
     });
     out.engine = 'react';
     out.react = r;
@@ -125,7 +129,7 @@ async function deepRun(opts) {
     };
   } else {
     out.mission = await autopilot.runMission({
-      goal: enriched, provider, model, ws, permissions, chat, maxIterations
+      goal: enriched, provider, model, ws, permissions, chat, maxIterations, prior
     });
   }
   const mission = out.mission;
@@ -146,6 +150,28 @@ async function deepRun(opts) {
   out.error = mission.ok
     ? (failed.length ? failed.map((c) => `CHECK FAILED (${c.code}): ${c.file}`).join('\n') : null)
     : mission.error;
+
+  // ---- 5. REMEMBER: this mission becomes next mission's scar tissue ----
+  if (experience && typeof experience.record === 'function') {
+    const failures = [];
+    if (out.error) failures.push(String(out.error).slice(0, 300));
+    if (out.engine === 'react' && out.react) {
+      for (const st of out.react.steps) {
+        if (/exit [1-9]|FAIL|failed/i.test(st.observation || '')) failures.push(`${st.tool}: ${String(st.observation).slice(0, 200)}`);
+      }
+    }
+    const lesson = out.engine === 'react'
+      ? `tools: ${(out.react ? out.react.steps.map((x) => x.tool) : []).join(' → ')}; ${out.ok ? 'verified + checked clean' : 'stopped: ' + String(out.error || '').slice(0, 120)}`
+      : `${mission.summary || 'mission'}; verify ${out.ok ? 'passed' : 'FAILED: ' + String(out.error || '').slice(0, 120)}`;
+    experience.record({
+      goal: String(goal).slice(0, 200),
+      engine: out.engine || 'mission',
+      ok: out.ok,
+      files: mission.files || [],
+      failures: failures.slice(0, 3),
+      lesson
+    });
+  }
   return out;
 }
 

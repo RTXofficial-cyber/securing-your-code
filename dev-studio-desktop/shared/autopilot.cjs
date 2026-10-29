@@ -17,11 +17,12 @@
  */
 const agent = require('./agent.cjs');
 
-const PLAN_PROMPT = (goal, extra) => [
+const PLAN_PROMPT = (goal, extra, prior) => [
   'You are Dev Studio Autopilot, an autonomous software engineer inside the user\'s workspace.',
   'Produce a concrete plan for the goal below. Respond with ONLY a JSON object, no prose, no fences:',
   '{"summary":"one line","steps":[{"title":"short title","actions":[{"type":"write_file","path":"rel/path","content":"full file content"} OR {"type":"run_command","command":"shell command"}]}],"verify":["shell command that proves success (exit 0)"],"done":"what the user will have at the end"}',
   'Rules: relative paths only; zero-dependency code; every written .js file must pass `node --check`; keep files small and complete.',
+  prior ? `${prior}\n` : '',
   extra ? `Previous attempt failed. Fix exactly this error:\n${extra}\n` : '',
   `GOAL: ${goal}`
 ].join('\n');
@@ -79,7 +80,8 @@ async function runMission(opts) {
     ws,
     permissions = { runCommands: true, writeFiles: true },
     chat,
-    maxIterations = 3
+    maxIterations = 3,
+    prior = ''
   } = opts;
 
   const iterations = [];
@@ -96,7 +98,7 @@ async function runMission(opts) {
       let reply;
       try {
         reply = await chat(provider, model, [
-          { role: 'system', content: PLAN_PROMPT(goal, lastError) },
+          { role: 'system', content: PLAN_PROMPT(goal, lastError, prior) },
           { role: 'user', content: goal }
         ]);
       } catch (e) {

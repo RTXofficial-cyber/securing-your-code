@@ -128,6 +128,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
               : [
                 `DEEP ${res.ok ? '✓ VERIFIED + CHECKED' : '✗ STOPPED'} — ${res.mission?.summary || res.goal}`,
                 res.research?.count ? `\n[research] ${res.research.count} live source(s) via ${res.research.source}:\n${res.research.results.slice(0, 4).map((r, i) => `${i + 1}. [${r.title}](${r.url})`).join('\n')}` : '',
+                res.priorCount ? `\n[prior] ${res.priorCount} purane mission(s) ke lessons plan mein inject hue` : '',
                 ...(res.react
                   ? res.react.steps.map((st) => `\n[step ${st.step}] ${st.tool}${st.skipped ? ' · SKIPPED by permissions' : ''} ${st.args || ''}\n${(st.observation || '').slice(0, 700)}`).concat(res.react.answer ? [`\n[answer] ${res.react.answer}`] : [])
                   : (res.mission?.iterations || []).map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1200)}`)),
@@ -146,6 +147,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
           role: 'assistant',
           content: [
             `AUTOPILOT ${res.ok ? '✓ VERIFIED' : '✗ STOPPED'} — ${res.summary || res.goal}`,
+            res.priorCount ? `\n[prior] ${res.priorCount} purane mission(s) ke lessons inject hue` : '',
             ...res.iterations.map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1500)}`),
             `\nfiles: ${res.files?.length ? res.files.join(', ') : 'none'}`,
             res.done ? `result: ${res.done}` : '',

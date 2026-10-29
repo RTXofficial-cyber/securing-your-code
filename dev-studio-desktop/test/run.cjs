@@ -989,6 +989,88 @@ async function test(name, fn) {
     assert.match(r.react.answer, /verified/);
   });
 
+  console.log('\nMission experience (agent learns from past runs)');
+  const { ExperienceStore } = require('../shared/experience.cjs');
+
+  await test('experience store persists, ranks relevance, caps and clears', async () => {
+    const dir = path.join(tmp, 'expws');
+    fs.mkdirSync(dir, { recursive: true });
+    const file = path.join(dir, '.dev-studio', 'experience.json');
+    const store = new ExperienceStore(file);
+    store.record({ goal: 'build me a landing page with a navbar', engine: 'react', ok: true, files: ['index.html'], lesson: 'verified with node --check; navbar css grid worked' });
+    store.record({ goal: 'write a snake game in python', engine: 'mission', ok: false, files: [], failures: ['VERIFY FAILED: python syntax'], lesson: 'py_compile caught an indentation error' });
+    assert.equal(fs.existsSync(file), true);
+    const reloaded = new ExperienceStore(file);
+    assert.equal(reloaded.stats().total, 2);
+    assert.equal(reloaded.stats().failures, 1);
+    const rel = reloaded.relevant('build a landing page for my portfolio');
+    assert.ok(rel.length >= 1 && /landing page/.test(rel[0].goal)); // token overlap wins
+    const block = reloaded.contextBlock('add a navbar to my page');
+    assert.match(block, /Lessons from previous missions/);
+    assert.match(block, /navbar/);
+    for (let i = 0; i < 45; i += 1) reloaded.record({ goal: `filler task number ${i}`, ok: true, lesson: 'filler' });
+    assert.equal(reloaded.get().length, 40); // capped
+    assert.equal(reloaded.clear('failures').failures, 0);
+    assert.equal(reloaded.clear().total, 0);
+  });
+
+  await test('deepRun injects relevant lessons into the plan prompt and records the outcome', async () => {
+    const dir = path.join(tmp, 'expws2');
+    fs.mkdirSync(dir, { recursive: true });
+    const store = new ExperienceStore(path.join(dir, '.dev-studio', 'experience.json'));
+    store.record({ goal: 'build me a website about tea', engine: 'mission', ok: false, failures: ['VERIFY FAILED (1): node --check script.js'], lesson: 'script.js had a stray comma; run node --check before done' });
+    const seen = [];
+    const r = await deep.deepRun({
+      goal: 'build me a website about coffee',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      permissions: { writeFiles: true, runCommands: true },
+      chat: async (pr, md, msgs) => { seen.push(msgs); return brainD.chat(md, msgs); },
+      fetchImpl: mockFetch({}),
+      experience: store
+    });
+    assert.equal(r.mode, 'build');
+    assert.ok(r.priorCount >= 1, 'lessons were injected');
+    const sysPrompt = seen[0].find((m) => m.role === 'system').content;
+    assert.match(sysPrompt, /Lessons from previous missions/);
+    assert.match(sysPrompt, /stray comma/); // the actual scar tissue reached the planner
+    assert.equal(r.ok, true);
+    const after = store.get();
+    assert.ok(after.length >= 2);
+    assert.match(after[0].goal, /coffee/); // this mission was recorded for next time
+    assert.equal(after[0].ok, true);
+    assert.match(after[0].lesson, /verify passed/);
+  });
+
+  await test('react agents get lessons in their system prompt; failed checks are remembered', async () => {
+    const dir = path.join(tmp, 'expws3');
+    fs.mkdirSync(dir, { recursive: true });
+    const store = new ExperienceStore(path.join(dir, '.dev-studio', 'experience.json'));
+    store.record({ goal: 'build a tiny script that prints numbers', engine: 'react', ok: false, failures: ['run_command: exit 1 SyntaxError'], lesson: 'always node --check after writing' });
+    const seen = [];
+    const badChat = scripted([
+      '```tool\n{"tool":"write_file","path":"bad.js","content":"const = ;\\n"}\n```',
+      '```tool\n{"tool":"done","answer":"done"}\n```'
+    ]);
+    const bad = await deep.deepRun({
+      goal: 'build a tiny script that prints hello',
+      provider: 'openai', model: 'gpt-test',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      permissions: { writeFiles: true, runCommands: true },
+      chat: async (pr, md, msgs) => { seen.push(msgs); return badChat(pr, md, msgs); },
+      fetchImpl: mockFetch({}),
+      experience: store
+    });
+    const sysPrompt = seen[0].find((m) => m.role === 'system').content;
+    assert.match(sysPrompt, /always node --check after writing/); // lesson reached the ReAct agent
+    assert.equal(bad.engine, 'react');
+    assert.equal(bad.ok, false); // CHECK phase caught the broken file locally
+    assert.match(bad.error, /CHECK FAILED/);
+    const newest = store.get()[0];
+    assert.equal(newest.ok, false);
+    assert.match(newest.failures.join(' '), /CHECK FAILED/);
+    assert.match(newest.lesson, /tools: write_file → done/);
+  });
+
   console.log('\nApp lock & audit');
   const { LockManager } = require('../shared/lock.cjs');
 

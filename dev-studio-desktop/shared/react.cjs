@@ -19,7 +19,7 @@ const websearch = require('./websearch.cjs');
 const IS_WIN = process.platform === 'win32';
 const PY = IS_WIN ? 'py' : 'python3';
 
-const SYSTEM = (goal, researchContext) => [
+const SYSTEM = (goal, researchContext, prior) => [
   'You are Dev Studio Deep Agent, a careful software engineer working inside the user\'s real PC workspace.',
   'Solve the GOAL step by step. Reply with EXACTLY ONE tool call per message, as JSON:',
   '```tool',
@@ -34,6 +34,7 @@ const SYSTEM = (goal, researchContext) => [
   '- {"tool":"done","answer":"final answer for the user","files":["rel/path"]}   finish',
   'Rules: relative paths only; zero-dependency code; after writing each .js file verify it with run_command "node --check <path>" and fix failures before done; never claim success you have not observed; if a tool is SKIPPED by permissions, adapt (explain in the final answer) instead of retrying.',
   researchContext ? `\nResearch already gathered (use if relevant):\n${researchContext}\n` : '',
+  prior ? `\n${prior}\n` : '',
   `GOAL: ${goal}`
 ].filter(Boolean).join('\n');
 
@@ -71,11 +72,12 @@ async function runAgent(opts) {
     chat,
     fetchImpl = null,
     maxSteps = 8,
-    researchContext = ''
+    researchContext = '',
+    prior = ''
   } = opts || {};
 
   const cap = Math.min(14, Math.max(2, Number(maxSteps) || 8));
-  const messages = [{ role: 'system', content: SYSTEM(String(goal || ''), researchContext) }];
+  const messages = [{ role: 'system', content: SYSTEM(String(goal || ''), researchContext, prior) }];
   const steps = [];
   const files = new Set();
   let answer = '';
