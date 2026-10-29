@@ -211,6 +211,26 @@ Dev Studio (.exe)  ── owns ──▶  C:\your\workspace   ◀── same fil
 - Close it any time: Settings → Security → `stop`, or quit the app. Nothing is
   left listening when the app exits, and every start/open/mode-change is audited.
 
+## Autopilot — autonomous plan → execute → verify → fix
+
+Flip the chat to **Auto** and give it a goal: *"add a login page with
+validation"*, *"build me a website"*, *"refactor the parser into its own
+file"*. Dev Studio then works like an engineer, in loops:
+
+1. **PLAN** — the selected model returns a JSON plan (steps, file writes,
+   shell commands, verify commands). The offline built-in engine plans with
+   its normal action blocks, so Auto works with no key too.
+2. **EXECUTE** — actions run through the *same* permission gates as chat
+   (`writeFiles`, `runCommands`); anything refused is listed as SKIPPED in the
+   transcript, never silent.
+3. **VERIFY** — every verify command must exit 0; output is kept in the
+   transcript.
+4. **FIX** — on failure the exact error is fed back and a fix plan runs, up to
+   3 iterations (4 max). Every mission is audited (`auto.run`).
+
+The chat shows each iteration: phase, action count, skips, verify exit codes
+and logs — so you can always see *why* it did what it did.
+
 ## Project memory — the AI remembers your codebase
 
 Big projects break chat-style AI: every new run starts from zero. Dev Studio

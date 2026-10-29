@@ -12,6 +12,7 @@ const orchestrator = require('../shared/orchestrator.cjs');
 const { PluginManager } = require('../shared/plugins.cjs');
 const { LockManager } = require('../shared/lock.cjs');
 const { MemoryStore } = require('../shared/memory.cjs');
+const autopilot = require('../shared/autopilot.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full', bridgeGuests: [], memory: null };
 function getState() {
@@ -368,6 +369,27 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return { ok: true };
   });
 
+  // ---------- autopilot: autonomous plan -> execute -> verify -> fix ----------
+  handle('auto:run', async (_e, payload) => {
+    const { goal, provider, model, maxIterations } = payload || {};
+    if (!goal || typeof goal !== 'string') return { ok: false, error: 'goal is required' };
+    try {
+      const r = await autopilot.runMission({
+        goal,
+        provider: provider || 'builtin',
+        model: model || null,
+        ws,
+        permissions: state.permissions,
+        chat: (pr, md, messages) => providers.chat(pr, md, messages),
+        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3))
+      });
+      lock.audit('auto.run', { goal: goal.slice(0, 120), ok: r.ok, iterations: r.iterations.length, files: r.files.length });
+      return { ok: true, ...r };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   // ---------- workspace memory (persistent project context) ----------
   // Lives at <workspace>/.dev-studio/memory.json so it travels with the project.
   function memoryStore() {
@@ -449,7 +471,8 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     memorySetTask: 'memory:setTask',
     memoryRemoveTask: 'memory:removeTask',
     memoryClear: 'memory:clear',
-    bridgeGuestList: 'bridge:guestList'
+    bridgeGuestList: 'bridge:guestList',
+    autoRun: 'auto:run'
   };
 
   // Methods a read-only Chrome tab must NOT be able to call.
@@ -460,7 +483,8 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     'lockSet', 'lockChange', 'lockClear', 'lockAutoLock', 'auditClear',
     'bridgeSetMode',
     'memoryProject', 'memoryAddNote', 'memoryUpdateNote', 'memoryRemoveNote',
-    'memoryAddTask', 'memorySetTask', 'memoryRemoveTask', 'memoryClear'
+    'memoryAddTask', 'memorySetTask', 'memoryRemoveTask', 'memoryClear',
+    'autoRun'
   ];
 
   const bridgeImpl = {};

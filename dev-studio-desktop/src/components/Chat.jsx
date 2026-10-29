@@ -76,7 +76,7 @@ function Pipeline({ steps }) {
 
 const WELCOME = `Welcome to Dev Studio.
 
-**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
+**Auto mode** (below) is autonomous: it plans the goal, writes and runs the code, verifies it (exit codes), and on failure feeds the error back and fixes it — up to 3 loops, always inside your permission toggles.\n\n**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
 
 Solo mode uses one model. Click any “wrote …” line to open that file.`;
 
@@ -85,6 +85,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
   const [model, setModel] = useState('');
   const [agentMode, setAgentMode] = useState(true);
   const [teamMode, setTeamMode] = useState(false);
+  const [autoMode, setAutoMode] = useState(false);
   const [roles, setRoles] = useState([]);
   const [overrides, setOverrides] = useState({});
   const [messages, setMessages] = useState([{ role: 'assistant', content: WELCOME, actionResults: [] }]);
@@ -115,7 +116,22 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
     setBusy(true);
 
     try {
-      if (teamMode) {
+      if (autoMode) {
+        setMessages((h) => [...h, { role: 'assistant', content: 'AUTOPILOT — planning, executing and verifying… (this can take a minute)', actionResults: [] }]);
+        const res = await api.autoRun({ goal: text, provider, model });
+        setMessages((h) => h.slice(0, -1).concat(res?.ok || res?.iterations ? [{
+          role: 'assistant',
+          content: [
+            `AUTOPILOT ${res.ok ? '✓ VERIFIED' : '✗ STOPPED'} — ${res.summary || res.goal}`,
+            ...res.iterations.map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1500)}`),
+            `\nfiles: ${res.files?.length ? res.files.join(', ') : 'none'}`,
+            res.done ? `result: ${res.done}` : '',
+            res.error ? `error: ${res.error}` : ''
+          ].filter(Boolean).join('\n'),
+          actionResults: []
+        }] : [{ role: 'error', content: res?.error || 'Autopilot failed', actionResults: [] }]));
+        if (res?.files?.length) { onAgentActed?.(); onFileCreated?.(res.files[0]); }
+      } else if (teamMode) {
         const res = await api.ensemble({ userText: text, overrides });
         if (res?.ok) {
           setMessages((h) => [...h, {
@@ -168,8 +184,9 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
         <div className="chat-row">
           <span className="chat-title">AI</span>
           <div className="mode-switch">
-            <button className={`mode-btn ${!teamMode ? 'on' : ''}`} onClick={() => setTeamMode(false)}>Solo</button>
-            <button className={`mode-btn ${teamMode ? 'on' : ''}`} onClick={() => setTeamMode(true)}>Team</button>
+            <button className={`mode-btn ${!teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(false); setAutoMode(false); }}>Solo</button>
+            <button className={`mode-btn ${teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(true); setAutoMode(false); }}>Team</button>
+            <button className={`mode-btn ${autoMode ? 'on' : ''}`} title="Autonomous: plan, execute, verify and fix — inside your permissions" onClick={() => { setAutoMode(true); setTeamMode(false); }}>Auto</button>
           </div>
           <button className="icon-btn" onClick={onHide} title="Hide panel">✕</button>
         </div>

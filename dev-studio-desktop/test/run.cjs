@@ -584,6 +584,80 @@ async function test(name, fn) {
     assert.strictEqual(f.query, 'TODO');
   });
 
+  console.log('\nAutopilot');
+  const autopilot = require('../shared/autopilot.cjs');
+
+  await test('autopilot runs a JSON plan and verifies it in one pass', async () => {
+    const dir = path.join(tmp, 'auto1');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsAuto = makeWorkspaceHelpers({ value: dir });
+    let calls = 0;
+    const chat = async () => {
+      calls += 1;
+      return JSON.stringify({
+        summary: 'add util', done: 'a.js verified',
+        steps: [{ title: 'write a.js', actions: [{ type: 'write_file', path: 'a.js', content: 'console.log(1);\n' }] }],
+        verify: ['node --check a.js']
+      });
+    };
+    const r = await autopilot.runMission({ goal: 'add util', provider: 'frontier', ws: wsAuto, permissions: { writeFiles: true, runCommands: true }, chat, maxIterations: 2 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(calls, 1, 'no fix loop when verify passes');
+    assert.ok(fs.existsSync(path.join(dir, 'a.js')));
+    assert.deepStrictEqual(r.files, ['a.js']);
+  });
+
+  await test('autopilot fix loop recovers from a failing verify', async () => {
+    const dir = path.join(tmp, 'auto2');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsAuto = makeWorkspaceHelpers({ value: dir });
+    let calls = 0;
+    const chat = async () => {
+      calls += 1;
+      const broken = calls === 1;
+      return JSON.stringify({
+        summary: broken ? 'first try' : 'fix', done: 'fixed',
+        steps: [{ title: 'write', actions: [{ type: 'write_file', path: 'b.js', content: broken ? 'console.log(;\n' : 'console.log(2);\n' }] }],
+        verify: ['node --check b.js']
+      });
+    };
+    const r = await autopilot.runMission({ goal: 'fix', provider: 'frontier', ws: wsAuto, permissions: { writeFiles: true, runCommands: true }, chat, maxIterations: 3 });
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.iterations.length, 2, 'one failing iteration, then a fix');
+    assert.strictEqual(calls, 2);
+  });
+
+  await test('autopilot respects permission gates and reports skips', async () => {
+    const dir = path.join(tmp, 'auto3');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsAuto = makeWorkspaceHelpers({ value: dir });
+    const chat = async () => JSON.stringify({
+      summary: 'write', done: '',
+      steps: [{ title: 'w', actions: [{ type: 'write_file', path: 'c.js', content: 'x\n' }] }],
+      verify: []
+    });
+    const r = await autopilot.runMission({ goal: 'g', provider: 'frontier', ws: wsAuto, permissions: { writeFiles: false, runCommands: false }, chat, maxIterations: 1 });
+    assert.ok(!fs.existsSync(path.join(dir, 'c.js')), 'write must be refused');
+    assert.ok(r.iterations[0].skipped.some((s) => s.includes('write c.js')));
+    assert.strictEqual(r.ok, true, 'nothing to verify -> ok, but skips stay visible');
+  });
+
+  await test('autopilot with the offline built-in planner scaffolds and verifies', async () => {
+    const dir = path.join(tmp, 'auto4');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsAuto = makeWorkspaceHelpers({ value: dir });
+    const r = await autopilot.runMission({
+      goal: 'build me a website',
+      provider: 'builtin',
+      ws: wsAuto,
+      permissions: { writeFiles: true, runCommands: true },
+      chat: (pr, md, messages) => providers.chat(pr, md, messages),
+      maxIterations: 2
+    });
+    assert.strictEqual(r.ok, true, r.error || 'builtin mission should verify');
+    assert.ok(fs.existsSync(path.join(dir, 'index.html')));
+  });
+
   console.log('\nApp lock & audit');
   const { LockManager } = require('../shared/lock.cjs');
 

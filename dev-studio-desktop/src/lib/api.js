@@ -147,6 +147,18 @@ const mock = {
   terminalKill: async () => ({ ok: true }),
   onTerminal: () => () => {},
   gameOpen: async () => ({ ok: true, url: '/play/' }),
+  autoRun: async ({ goal } = {}) => {
+    await sleep(500);
+    return {
+      ok: true, goal, provider: 'mock', summary: 'mock mission plan', done: 'a verified demo file',
+      iterations: [{
+        iter: 1, phase: 'verified', ok: true, title: 'mock plan', steps: ['write', 'verify'],
+        actions: 2, skipped: [], verify: [{ cmd: 'node --check demo.js', code: 0 }],
+        log: '$ node --check demo.js\n(exit 0)'
+      }],
+      files: ['demo.js'], error: null
+    };
+  },
   bridgeStart: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeOpen: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeStop: async () => ({ ok: true, running: false }),
@@ -291,6 +303,7 @@ function makeBridgeTransport(token) {
     bridgeMode: () => rpc('bridgeMode'),
     bridgeSetMode: (m) => rpc('bridgeSetMode', m),
     bridgeGuestList: () => rpc('bridgeGuestList'),
+    autoRun: (p) => rpc('autoRun', p),
     // minting or revoking guest links is a desktop-app-only privilege
     bridgeGuestCreate: desktopOnly('Creating guest links is desktop-only'),
     bridgeGuestRevoke: desktopOnly('Revoking guest links is desktop-only'),
