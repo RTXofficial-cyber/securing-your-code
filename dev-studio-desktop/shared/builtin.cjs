@@ -357,6 +357,11 @@ function mathAnswer(t) {
 }
 
 const KB = [
+  { m: /\baaa\b|triple.?a|big.?budget|gta ?6|why are (?:big )?games (?:so )?(?:expensive|hard)/, t: 'What AAA game development actually takes', b: [
+    'The honest numbers: GTA VI is reportedly ~2000 people × ~10 years and a budget in the billions. AAA = engine team (renderer, physics, audio, AI, streaming, tools), asset pipeline (mocap stages, scan libraries, orchestral audio), and a QA org — not one genius and one repo.',
+    'But the LAYERS are the same everywhere: 3D math (matrices, perspective projection, culling), a render loop with depth handling, simulation (physics/AI), input, audio, HUD, save/load, and ruthless automated testing.',
+    'Dev Studio ships those layers in miniature and PROVABLY working: GameKit3D is a real perspective renderer (backface culling, lambert lighting, fog); every game survives a headless harness AND a seeded fuzz storm before it ships; the agent verifies with exit codes.',
+    'Ask "make a 3d city game" and you get MONO CITY 3D — first-person, lit, fogged, traffic, minimap. It is not GTA VI. It is the same mathematics, honestly scaled.' ] },
   { m: /\bgta\b|grand theft|open.?world|how are (?:big|aaa) games made/, t: 'How GTA-style open-world games are built', b: [
     'The honest scale: GTA VI is ~2000 people × ~10 years × billions of dollars. No engine file changes that — but the SYSTEMS are learnable, and Dev Studio ships a working miniature of them (`GRAND THEFT MONO`).',
     'The seven pillars: (1) a streamed world (only nearby blocks load/draw), (2) vehicles with arcade physics (speed, steering, collision response), (3) NPC schedules (pedestrians wander, flee, die), (4) a wanted level that escalates police response, (5) mission scripting (pickup → timer → delivery → reward), (6) a minimap/HUD layer, (7) save + restart loops.',
@@ -1011,7 +1016,9 @@ async function chat(model, messages) {
     // Anything with extra wishes gets a composed game built from its DNA.
     const bare = text.split(/\s+/).length <= 5 && !/with|and|add|plus|neon|zombie|pipe|flappy|magnet|shield|rapid|dash|bomb/.test(text);
     const cityAsk = /\bgta\b|grand theft|open.?world|crime (?:city|game)|mafia|heist|police chase|car game|driving game/.test(text);
-    const preset = cityAsk ? 'city'
+    const threeDAsk = /\b3-?d\b|three.?d|first.?person/.test(text);
+    const preset = threeDAsk ? 'city3d'
+      : cityAsk ? 'city'
       : !bare ? null
       : /\bplatformer\b/.test(text) ? 'platformer'
       : /\brunner\b/.test(text) ? 'runner'
@@ -1026,7 +1033,9 @@ async function chat(model, messages) {
         : `Plan: (1) read your request into a game DNA — ${dna} — (2) compose that exact game, (3) verify it runs.`,
       action('game_new', preset ? { genre: preset, dir: 'game' } : { spec, dir: 'game' }),
       action('game_check', { dir: 'game' }),
-      preset === 'city'
+      preset === 'city3d'
+        ? 'Done — **MONO CITY 3D** is in **game/**: a first-person city rendered by a REAL 3D pipeline — 4x4 matrix math, perspective projection, backface culling, directional sunlight, distance fog, painter-sorted depth. Walk/sprint through 25 buildings, dodge live traffic (it damages you), collect floating packages ($50 each), minimap included. Press **▶ play**. Honest note: this is a genuine software 3D renderer in one dependency-free file — the same discipline AAA engines scale to thousands of files, GPU shaders and mocap studios. The math here is the same math.'
+        : preset === 'city'
         ? 'Done — **GRAND THEFT MONO** is in **game/**: a drivable open city (2400×1800), 16 cars you can steal (X/E), wandering pedestrians, courier missions with timers, a 5-star WANTED system with police cars that spawn and chase you, arrests on foot, rammings in cars, minimap, and a full game-over/restart loop. Press **▶ play**. Honest scale note: real GTA is thousands of people × a decade — this is the same SYSTEMS (open world, vehicles, wanted level, police AI, missions) distilled into one zero-dependency file that actually runs.'
         : preset
         ? `Done — a complete game is in **game/**. Press **▶ play** (or open \`game/index.html\`).`

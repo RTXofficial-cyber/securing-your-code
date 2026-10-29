@@ -14,6 +14,7 @@ const out = path.join(root, 'public', 'play');
 
 fs.mkdirSync(path.join(out, 'games'), { recursive: true });
 fs.copyFileSync(path.join(kit, 'engine.js'), path.join(out, 'engine.js'));
+fs.copyFileSync(path.join(kit, 'engine3d.js'), path.join(out, 'engine3d.js'));
 
 const templates = fs.readdirSync(path.join(kit, 'templates')).filter((f) => f.endsWith('.js'));
 for (const t of templates) {
@@ -25,6 +26,7 @@ const meta = {
   titles: {
     arena: 'VOID ARENA — twin-stick survival',
     city: 'GRAND THEFT MONO — mini open-world crime city',
+    city3d: 'MONO CITY 3D — first-person 3D city (real perspective renderer)',
     platformer: 'MONO JUMP — precision platformer',
     shmup: 'STARFALL — vertical shooter',
     runner: 'LINE RUNNER — endless runner',

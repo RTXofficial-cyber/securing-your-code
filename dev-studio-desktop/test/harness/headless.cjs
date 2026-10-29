@@ -28,7 +28,16 @@ function makeCtx() {
   });
 }
 
-function runGame({ engineSrc, gameSrc, frames = 600 }) {
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function runGame({ engineSrc, gameSrc, frames = 600, extraSrcs = [], fuzz = null }) {
   const listeners = {};
   const rafQ = [];
   let now = 0;
@@ -67,9 +76,31 @@ function runGame({ engineSrc, gameSrc, frames = 600 }) {
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
   vm.runInContext(engineSrc, sandbox, { filename: 'engine.js' });
+  extraSrcs.forEach((src, i) => vm.runInContext(src, sandbox, { filename: `extra${i}.js` }));
   vm.runInContext(gameSrc, sandbox, { filename: 'game.js' });
 
   const fire = (type, ev) => (listeners[type] || []).forEach((f) => f(ev));
+  const FUZZ_CODES = ['Space', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'ShiftRight', 'KeyX', 'KeyE', 'KeyQ', 'KeyP', 'Enter', 'Escape', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyM'];
+  if (fuzz !== null) {
+    // seeded chaos: random key/mouse storms — robustness testing, AAA style
+    const rnd = mulberry32(fuzz);
+    const held = new Set();
+    for (let i = 0; i < frames; i += 1) {
+      now += 8 + rnd() * 30; // jittered frame times too
+      if (rnd() < 0.25) {
+        const code = FUZZ_CODES[Math.floor(rnd() * FUZZ_CODES.length)];
+        if (held.has(code)) { held.delete(code); fire('keyup', { code }); }
+        else { held.add(code); fire('keydown', { code, preventDefault() {} }); }
+      }
+      if (rnd() < 0.08) fire('canvas:mousedown', { clientX: Math.floor(rnd() * 960), clientY: Math.floor(rnd() * 540), preventDefault() {} });
+      if (rnd() < 0.08) fire('canvas:touchstart', { touches: [{ clientX: Math.floor(rnd() * 960), clientY: Math.floor(rnd() * 540) }], preventDefault() {} });
+      if (rnd() < 0.06) fire('canvas:touchend', {});
+      if (rnd() < 0.1) fire('mouseup', {});
+      const q = rafQ.splice(0, rafQ.length);
+      q.forEach((cb) => cb(now));
+    }
+    return sandbox;
+  }
   const codes = ['Space', 'KeyA', 'KeyD', 'KeyW', 'KeyS', 'ShiftLeft', 'KeyX', 'Enter', 'ArrowUp'];
   for (let i = 0; i < frames; i += 1) {
     now += 16.6;

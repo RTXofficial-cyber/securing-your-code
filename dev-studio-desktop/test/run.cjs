@@ -498,9 +498,17 @@ async function test(name, fn) {
     assert.strictEqual(r3.genre, 'city');
     assert.ok(written['game3/game.js'].includes('__cityGame'), 'city template landed intact');
     assert.ok(written['game3/index.html'].includes('GRAND THEFT MONO'));
-    // genre word-matching routes GTA-ish asks to city
+    // city3d preset scaffolds the 3D engine alongside
+    const r4 = tool.run({ genre: 'city3d', dir: 'game4' }, ctx);
+    assert.strictEqual(r4.genre, 'city3d');
+    assert.ok(written['game4/engine3d.js'].includes('GameKit3D'), 'engine3d lands with the game');
+    assert.ok(written['game4/game.js'].includes('__city3d'));
+    assert.ok(written['game4/index.html'].includes('engine3d.js'), 'page loads the 3D engine');
+    assert.ok(written['game4/index.html'].includes('MONO CITY 3D'));
+    // genre word-matching routes GTA-ish asks to city, 3D asks to city3d
     assert.strictEqual(entry.genreOf('a gta clone'), 'city');
     assert.strictEqual(entry.genreOf('open world crime game'), 'city');
+    assert.strictEqual(entry.genreOf('a first person 3d city'), 'city3d');
     const list = entry.tools.find((t) => t.name === 'game_list');
     ctx.ws.tree = () => [{ name: 'game', path: 'game', type: 'dir', children: [
       { name: 'game.js', path: 'game/game.js', type: 'file' },
@@ -532,6 +540,14 @@ async function test(name, fn) {
     const kb = await mk('how are gta style open-world games made?');
     assert.match(kb, /pillars|streamed world/i);
     assert.ok(!agent.parseActions(kb).some((a) => a.type === 'game_new'), 'questions must not scaffold');
+    // 3D asks route to the real-3D template
+    const d3 = await mk('make me a 3d city game with traffic');
+    assert.match(d3, /MONO CITY 3D/);
+    assert.ok(agent.parseActions(d3).some((a) => a.type === 'game_new' && a.genre === 'city3d'));
+    // AAA question -> honest knowledge, no scaffold
+    const aaa = await mk('how do aaa games like gta 6 get made?');
+    assert.match(aaa, /2000 people|billions/i);
+    assert.ok(!agent.parseActions(aaa).some((a) => a.type === 'game_new'), 'AAA question must not scaffold');
   });
 
   await test('city (mini-GTA) mechanics work under the hood', () => {
@@ -571,9 +587,10 @@ async function test(name, fn) {
   await test('every shipped game runs 600 simulated frames headlessly', () => {
     const { runGame } = require('./harness/headless.cjs');
     const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
-    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed', 'city']) {
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed', 'city', 'city3d']) {
       const game = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', `${t}.js`), 'utf8');
-      runGame({ engineSrc: engine, gameSrc: game, frames: 600 }); // throws on any runtime error
+      runGame({ engineSrc: engine, gameSrc: game, frames: 600, extraSrcs: t === 'city3d' ? [engine3d] : [] }); // throws on any runtime error
     }
   });
 
@@ -1119,6 +1136,84 @@ async function test(name, fn) {
     assert.equal(newest.ok, false);
     assert.match(newest.failures.join(' '), /CHECK FAILED/);
     assert.match(newest.lesson, /tools: write_file → done/);
+  });
+
+  console.log('\nGameKit3D — real 3D pipeline');
+  const { makeCtx } = require('./harness/headless.cjs');
+
+  await test('GameKit3D math is real math (matrices, projection, culling)', async () => {
+    const K3 = (() => {
+      const vm2 = require('vm');
+      const sb = { Math, console }; sb.globalThis = sb;
+      vm2.createContext(sb);
+      vm2.runInContext(fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8'), sb);
+      return sb.GameKit3D;
+    })();
+    const M = K3.M4;
+    assert.deepEqual(M.mul(M.ident(), M.ident()), M.ident());
+    assert.deepEqual(M.transformPoint(M.translation(10, 0, 0), [1, 2, 3]), [11, 2, 3, 1]);
+    // rotY(90°) must send +x to -z (right-handed, y up)
+    const rv = M.transformPoint(M.rotY(Math.PI / 2), [1, 0, 0]);
+    assert.ok(Math.abs(rv[0]) < 1e-9 && Math.abs(rv[2] + 1) < 1e-9, `rotY wrong: ${rv}`);
+    const cam = { pos: [0, 17, 100], yaw: 0, pitch: 0, fov: 72, aspect: 960 / 540, near: 5, far: 2200, width: 960, height: 540 };
+    const ahead = K3.projectPoint(cam, [0, 17, 0]);
+    assert.ok(Math.abs(ahead.x - 480) < 2 && Math.abs(ahead.y - 270) < 2, 'dead-ahead point projects to screen centre');
+    const right = K3.projectPoint(cam, [30, 17, 0]);
+    assert.ok(right.x > 480 && Math.abs(right.y - 270) < 2, 'right-of-centre projects right');
+    assert.equal(K3.projectPoint(cam, [0, 17, 200]), null, 'behind the camera is rejected');
+    // renderer: a lone box draws some faces, culls the rest, never crashes
+    const faces = K3.boxFaces(-30, 0, -30, 60, 80, 60, 0.6);
+    const stats = K3.renderScene(makeCtx(), { camera: cam, faces, width: 960, height: 540 });
+    assert.ok(stats.drawn > 0 && stats.drawn + stats.culled === 5);
+  });
+
+  await test('city3d runs headlessly; packages pay and traffic hurts', async () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    const city = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'city3d.js'), 'utf8');
+    for (const seed of [0, 5]) {
+      const sb = runGame({ engineSrc: engine, gameSrc: city, frames: 600, extraSrcs: [engine3d], fuzz: seed || null });
+      const G = sb.__city3d;
+      assert.ok(G, 'test hook exposed');
+      assert.equal(G.buildings3.length, 25);
+      assert.equal(G.cars3.length, 10);
+      assert.equal(G.collect3.length, 12);
+      // package pickup pays
+      G.state = 'play';
+      const cp = G.collect3[0];
+      G.P3.x = cp.x + 5; G.P3.z = cp.z; G.P3.hp = 100; G.P3.hitT = 9;
+      const n0 = G.collected; const s0 = G.score;
+      G.scene.update(G, 1 / 60);
+      assert.equal(G.collected, n0 + 1, 'package collected');
+      assert.equal(G.score, s0 + 50, 'cash rewarded');
+      // traffic hits hurt
+      G.P3.hitT = 0;
+      const car = G.cars3[0];
+      const cx = car.axis === 'x' ? car.along : car.lane;
+      const cz = car.axis === 'x' ? car.lane : car.along;
+      G.P3.x = cx; G.P3.z = cz;
+      const hp0 = G.P3.hp;
+      G.scene.update(G, 1 / 60);
+      assert.ok(G.P3.hp < hp0, 'traffic damage applied');
+      assert.match(G.P3.msg, /HIT BY TRAFFIC/);
+    }
+  });
+
+  await test('every shipped game survives a fuzzed chaos-input storm', async () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    const { parseSpec } = require('../shared/gamekit/spec.cjs');
+    const composed = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'composed.js'), 'utf8');
+    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'city', 'city3d']) {
+      const game = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', `${t}.js`), 'utf8');
+      for (const seed of [1, 7, 42]) {
+        runGame({ engineSrc: engine, gameSrc: game, frames: 250, extraSrcs: t === 'city3d' ? [engine3d] : [], fuzz: seed });
+      }
+    }
+    const src = `const GAME_SPEC = ${JSON.stringify(parseSpec('zombie survival with dash'))};\n` + composed;
+    runGame({ engineSrc: engine, gameSrc: src, frames: 250, fuzz: 9 });
   });
 
   console.log('\nApp lock & audit');
