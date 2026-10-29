@@ -44,6 +44,44 @@ function setKey(envName, value) {
 }
 
 // ---------- helpers ----------
+/* Provider failures arrive as raw HTTP + JSON blobs that mean nothing to a
+   human. Map the common ones to plain guidance (Roman Urdu + English) with
+   the exact next step, and always keep a trimmed raw tail for debugging. */
+function friendlyProviderError(status, text) {
+  const t = String(text || '');
+  const raw = t.replace(/\s+/g, ' ').slice(0, 240);
+  const quota = /insufficient_quota|credit_balance_exhausted|no credits remaining|exceeded your current quota/i.test(t);
+  const badKey = status === 401 || /invalid_api_key|invalid api key|incorrect api key|invalid x-api-key|unauthorized|authentication_error/i.test(t);
+  const noModel = status === 404 && /model/i.test(t);
+  if (quota) {
+    return [
+      `⚠️ API credits khatam (HTTP ${status} — insufficient_quota). Key theek hai, account mein balance nahi.`,
+      '• OpenAI: credits add karein → https://platform.openai.com/settings/organization/billing — yaad rahe, ChatGPT Plus subscription API credits NAHI deta, API ka billing alag hai.',
+      '• Free alternatives abhi: Groq connector (free-tier key → https://console.groq.com/keys), Ollama (100% free, local models), ya built-in Studio Agent (koi key hi nahi chahiye).',
+      raw ? `Raw: ${raw}` : ''
+    ].filter(Boolean).join('\n');
+  }
+  if (badKey) {
+    return [
+      `⚠️ Key invalid ya expired (HTTP ${status}). Settings → Connectors mein key dobara paste karein.`,
+      '• Key sirf us platform ki honi chahiye (OpenAI ki key OpenAI connector mein, Groq ki Groq mein).',
+      '• Nayi key: OpenAI → platform.openai.com/api-keys · Groq → console.groq.com/keys · OpenRouter → openrouter.ai/keys',
+      raw ? `Raw: ${raw}` : ''
+    ].filter(Boolean).join('\n');
+  }
+  if (noModel) {
+    return [
+      `⚠️ Yeh model ID provider par nahi mila (HTTP 404). Dropdown se doosra model select karein.`,
+      '• Naye frontier models (jaise GPT-6 Astra) aksar pehle enterprise accounts ko milte hain — aapki key par abhi available na ho.',
+      raw ? `Raw: ${raw}` : ''
+    ].filter(Boolean).join('\n');
+  }
+  if (status === 429) {
+    return `⚠️ Rate limit (HTTP 429) — provider ne thoda rukne ko kaha. Ek minute baad dobara koshish karein, ya free-tier provider (Groq/Ollama) par switch karein.${raw ? `\nRaw: ${raw}` : ''}`;
+  }
+  return `Provider error (HTTP ${status}): ${raw || '(empty response)'}`;
+}
+
 async function postJSON(url, headers, body) {
   const res = await fetch(url, {
     method: 'POST',
@@ -52,7 +90,7 @@ async function postJSON(url, headers, body) {
   });
   const text = await res.text();
   if (!res.ok) {
-    throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 400)}`);
+    throw new Error(friendlyProviderError(res.status, text));
   }
   try {
     return JSON.parse(text);
@@ -244,6 +282,6 @@ async function chat(providerId, model, messages) {
 }
 
 module.exports = {
-  PROVIDERS, listProviders, chat, getKey, setKey, loadKeysFromEnvFile,
+  PROVIDERS, listProviders, chat, getKey, setKey, loadKeysFromEnvFile, friendlyProviderError,
   registerProvider, unregisterProvider, hasProvider, envFilePath: path
 };

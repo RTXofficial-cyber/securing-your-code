@@ -3,6 +3,8 @@
  * Demonstrates a keyed provider plugin (keyEnv is read from the same
  * Settings / dev-studio.env mechanism as the built-in connectors).
  */
+const { friendlyProviderError } = require('../../shared/providers.cjs');
+
 module.exports = {
   provider: {
     id: 'openrouter',
@@ -31,7 +33,7 @@ module.exports = {
         body: JSON.stringify({ model: model || 'anthropic/claude-sonnet-4.5', messages })
       });
       const text = await res.text();
-      if (!res.ok) throw new Error(`OpenRouter error ${res.status}: ${text.slice(0, 300)}`);
+      if (!res.ok) throw new Error(friendlyProviderError(res.status, text));
       const d = JSON.parse(text);
       return d.choices?.[0]?.message?.content ?? '(empty response)';
     }

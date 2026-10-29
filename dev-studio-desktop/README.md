@@ -253,6 +253,22 @@ is not competing with Astra but **driving** it:
 Where Dev Studio wins outright: ownership (your files never leave your
 machine unless you allow it), the audit trail, and working with no key at all.
 
+## Troubleshooting connectors
+
+- **429 "no credits remaining" / `credit_balance_exhausted`** — your key is
+  fine, the *account* has no API balance. A ChatGPT Plus subscription does
+  **not** include API credits; add them at
+  https://platform.openai.com/settings/organization/billing. Free routes
+  meanwhile: Groq connector (free tier), Ollama (local, free), or the
+  built-in Studio Agent (no key at all).
+- **401 invalid key** — re-paste it in Settings → Connectors; keys are
+  platform-specific.
+- **404 model not found** — new frontier models (e.g. GPT-6 Astra) roll out
+  to enterprise accounts first; pick another model from the dropdown.
+
+The app translates all of these raw HTTP/JSON failures into plain guidance
+with the exact next step (`friendlyProviderError`).
+
 ## Deep mode — the full agent: research → build → check
 
 A fourth chat pill, **Deep**, runs the whole loop in one message:

@@ -163,6 +163,18 @@ async function test(name, fn) {
   await test('chat refuses a provider with no key', async () => {
     providers.setKey('OPENAI_API_KEY', '');
     await assert.rejects(() => providers.chat('openai', 'gpt-4o', [{ role: 'user', content: 'hi' }]), /not connected/);
+    // raw HTTP blobs must become human guidance, not JSON walls
+    const q = providers.friendlyProviderError(429, '{"error":{"message":"You have no credits remaining.","code":"credit_balance_exhausted"}}');
+    assert.match(q, /credits khatam/);
+    assert.match(q, /platform\.openai\.com\/settings\/organization\/billing/);
+    assert.match(q, /Groq/);
+    assert.match(q, /Ollama/);
+    const k = providers.friendlyProviderError(401, '{"error":{"message":"Incorrect API key provided","type":"invalid_request_error"}}');
+    assert.match(k, /Key invalid/);
+    const m = providers.friendlyProviderError(404, '{"error":{"message":"The model `gpt-9` does not exist"}}');
+    assert.match(m, /model ID provider par nahi mila/);
+    const r = providers.friendlyProviderError(429, '{"error":{"message":"Rate limit reached"}}');
+    assert.match(r, /Rate limit/);
   });
 
   await test('setKey makes a provider ready', () => {
