@@ -335,7 +335,7 @@ async function test(name, fn) {
   await test('scan discovers official + user plugins', () => {
     const list = pm.scan();
     const ids = list.map((p) => p.id).sort();
-    assert.deepStrictEqual(ids, ['broken', 'demo', 'game-studio', 'git-tools', 'ollama', 'openrouter']);
+    assert.deepStrictEqual(ids, ['broken', 'demo', 'game-studio', 'git-tools', 'ollama', 'openrouter', 'workspace-inspector']);
   });
 
   await test('loadAll registers plugin providers and tools', () => {
@@ -552,6 +552,36 @@ async function test(name, fn) {
     assert.notStrictEqual(describeSpec(a), describeSpec(b));
     assert.strictEqual(parseSpec('collect gems, no weapons, pacifist').weapon, 'none');
     assert.strictEqual(parseSpec('neon cyber survival').theme, 'neon');
+  });
+
+  console.log('\nWorkspace Inspector');
+
+  await test('project_analyze reports stack, sizes and TODOs; find_code greps', () => {
+    const entry = require('../plugins/workspace-inspector/index.cjs');
+    const dir = path.join(tmp, 'proj');
+    fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'p', dependencies: { react: '1' } }));
+    fs.writeFileSync(path.join(dir, 'src', 'app.jsx'), 'import React from "react";\n// TODO: fix this\nconst x = 1;\n'.repeat(3));
+    fs.writeFileSync(path.join(dir, 'src', 'big.txt'), 'x'.repeat(5000));
+    const ctx = { workspace: dir, ws: { tree: () => [] }, runShell: async () => ({ ok: true }) };
+    const an = entry.tools.find((t) => t.name === 'project_analyze').run({}, ctx);
+    assert.strictEqual(an.ok, true);
+    assert.match(an.report, /PROJECT AUDIT/);
+    assert.ok(an.todos >= 3, 'TODO markers counted');
+    assert.ok(an.signals.includes('React'), 'stack detected');
+    const fc = entry.tools.find((t) => t.name === 'find_code').run({ query: 'TODO' }, ctx);
+    assert.ok(fc.count >= 3);
+    assert.match(fc.hits[0], /app\.jsx:\d+:/);
+  });
+
+  await test('builtin emits analyze and find actions for project questions', async () => {
+    const mk = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
+    const a1 = agent.parseActions(await mk('analyze my project'));
+    assert.ok(a1.some((a) => a.type === 'project_analyze'));
+    const a2 = agent.parseActions(await mk('find "TODO" in my code'));
+    const f = a2.find((a) => a.type === 'find_code');
+    assert.ok(f, 'find_code emitted');
+    assert.strictEqual(f.query, 'TODO');
   });
 
   console.log('\nApp lock & audit');

@@ -94,6 +94,8 @@ Shipped official plugins:
 | Plugin | Kind | What it adds |
 |---|---|---|
 | `ollama` | provider | local models via Ollama (no key, no internet) |
+| `game-studio` | tools | `game_new` / `game_check` / `game_list` — composes complete games |
+| `workspace-inspector` | tools | `project_analyze` / `find_code` / `project_stats` — offline project audit & search |
 | `openrouter` | provider | one key → hundreds of hosted models |
 | `git-tools` | tools | `git_init`, `git_status`, `git_commit`, `git_log` agent actions |
 
@@ -117,7 +119,8 @@ path traversal is blocked at the IPC layer.
 electron/       main process: window, IPC, terminal, sandboxing, bridge.cjs
 shared/         providers, agent, orchestrator, plugins.cjs, lock.cjs, memory.cjs
 src/            React renderer: landing, setup, studio, lock screen, memory panel
-plugins/        official plugins (ollama, openrouter, git-tools)
+plugins/        official plugins: ollama, openrouter, git-tools,
+                game-studio, workspace-inspector
 resources/      app icon
 test/           logic tests (run.cjs) + component tests (ui/*.test.jsx)
 e2e/            Playwright specs that drive real Chrome

@@ -500,6 +500,8 @@ function identityAnswer(t) {
     '**Kya kya kar sakta hoon:**',
     '- Poore projects likhna + verify karna: `build me a website`, `create an api`, `make a python server`, `write a cli tool`, `make a game`, `make a todo app`',
     '- Concepts samjhana: recursion, async, git, SQL, regex, CSS layout, security, testing, Big-O, Docker, React, Node, Python…',
+    '- Aapka project analyze karna: "analyze my project" → stack, sizes, TODOs, structure ka audit report',
+    '- Code search: "find TODO in my code" → har file mein path:line matches',
     '- Math: `what is (2+3)*4%7?`',
     '- Workspace dekhna: `list my files` · environment: `run environment check`',
     '',
@@ -595,6 +597,24 @@ async function chat(model, messages) {
   if (math) return math;
   const usage = appUsageAnswer(text);
   if (usage) return usage;
+
+  // ---- analyse / search the actual project, like a personal assistant ----
+  if (/analy[sz]e|audit|inspect|report on|summary of|overview of|review my (project|code|app)|project kaisa/.test(text)) {
+    return [
+      'Poora workspace scan kar raha hoon — stack, size, TODOs, structure, sab offline.',
+      action('project_analyze', {}),
+      'Report upar hai. Chaho to agla kadam bataoon: sabse bara file refactor karein, TODOs clean karein, ya tests add karein?'
+    ].join('\n\n');
+  }
+  if (/(find|search|where is|kahan hai|dhundo).{0,40}(in (my )?(code|project|files|workspace))|find (todo|fixme)/.test(text)) {
+    const q = /"([^"]+)"|'([^']+)'/.exec(lastUser(messages)); // keep original case
+    const guess = q ? (q[1] || q[2]) : (/find|dhundo/.test(text) ? (text.match(/(todo|fixme|hack|xxx)/i) || ['TODO'])[0] : 'TODO');
+    return [
+      `Searching every text file for **${guess}**…`,
+      action('find_code', { query: guess }),
+      'Matches upar hain (path:line). Kisi ko kholna ya fix karna ho to batao.'
+    ].join('\n\n');
+  }
 
   // ---- question-shaped concept queries get explained BEFORE any build ----
   if (isQuestion(text) && !/(write|make|build|create|generate|scaffold)/.test(text)) {
