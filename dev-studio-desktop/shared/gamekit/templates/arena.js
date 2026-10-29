@@ -48,7 +48,7 @@ g.start({
 
     g.wave += dt * 0.12;
     g.spawnT -= dt;
-    if (g.spawnT <= 0) { g.spawnT = Math.max(0.35, 1.5 - g.wave * 0.1); g.spawn(g); }
+    if (g.spawnT <= 0) { g.spawnT = Math.max(0.35, 1.5 - g.wave * 0.1); this.spawn(g); }
 
     for (let i = g.bullets.length - 1; i >= 0; i -= 1) {
       const b = g.bullets[i];

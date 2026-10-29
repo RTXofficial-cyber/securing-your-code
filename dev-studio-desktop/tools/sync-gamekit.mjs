@@ -26,7 +26,8 @@ const meta = {
     arena: 'VOID ARENA — twin-stick survival',
     platformer: 'MONO JUMP — precision platformer',
     shmup: 'STARFALL — vertical shooter',
-    runner: 'LINE RUNNER — endless runner'
+    runner: 'LINE RUNNER — endless runner',
+    composed: 'COMPOSED — the any-game runtime'
   },
   names
 };

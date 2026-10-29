@@ -642,18 +642,27 @@ async function chat(model, messages) {
   }
 
   if (/game|playable|snake|reflex|arcade|platformer|shooter|runner/.test(text)) {
-    const genre = (function () {
-      if (/platform|jump|mario/.test(text)) return 'platformer';
-      if (/runner|endless|dash|flappy/.test(text)) return 'runner';
-      if (/shooter|shmup|space|star|invaders/.test(text)) return 'shmup';
-      return 'arena';
-    })();
-    const names = { arena: 'VOID ARENA (twin-stick survival)', platformer: 'MONO JUMP (precision platformer)', shmup: 'STARFALL (vertical shooter)', runner: 'LINE RUNNER (endless runner)' };
+    const { parseSpec, describeSpec } = require('./gamekit/spec.cjs');
+    // A bare request ("make a platformer") gets the hand-tuned template.
+    // Anything with extra wishes gets a composed game built from its DNA.
+    const bare = text.split(/\s+/).length <= 5 && !/with|and|add|plus|neon|zombie|pipe|flappy|magnet|shield|rapid|dash|bomb/.test(text);
+    const preset = !bare ? null
+      : /\bplatformer\b/.test(text) ? 'platformer'
+      : /\brunner\b/.test(text) ? 'runner'
+      : /space shooter|\bshmup\b/.test(text) ? 'shmup'
+      : /\barena\b|twin-stick/.test(text) ? 'arena'
+      : null;
+    const spec = parseSpec(text);
+    const dna = describeSpec(spec);
     return [
-      `Plan: (1) scaffold **${names[genre]}** with the GameKit engine, (2) syntax-verify it, (3) tell you how to play.`,
-      action('game_new', { genre, dir: 'game' }),
+      preset
+        ? `Plan: (1) scaffold the hand-tuned **${preset.toUpperCase()}** game, (2) verify it, (3) hand you the controls.`
+        : `Plan: (1) read your request into a game DNA — ${dna} — (2) compose that exact game, (3) verify it runs.`,
+      action('game_new', preset ? { genre: preset, dir: 'game' } : { spec, dir: 'game' }),
       action('game_check', { dir: 'game' }),
-      `Done — a complete game is in **game/**: fixed-timestep loop, particles, screen shake, hit-stop, synth SFX, pause, high-score save and gamepad support. Press the **▶ play** button in the activity bar (or open \`game/index.html\`). Want a different genre? Say "make a platformer / runner / space shooter".`
+      preset
+        ? `Done — a complete game is in **game/**. Press **▶ play** (or open \`game/index.html\`).`
+        : `Done — **${spec.title}** is in **game/** with exactly the mechanics you asked for (${dna}). Press **▶ play** or open \`game/index.html\`. Change anything ("add bombs", "make it neon", "zombies instead") and I will recompose it.`
     ].join('\n\n');
   }
 

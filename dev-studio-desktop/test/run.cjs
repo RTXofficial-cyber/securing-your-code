@@ -473,10 +473,14 @@ async function test(name, fn) {
     const tool = entry.tools.find((t) => t.name === 'game_new');
     const r = tool.run({ genre: 'space shooter', dir: 'game' }, ctx);
     assert.strictEqual(r.ok, true);
-    assert.strictEqual(r.genre, 'shmup', 'genre aliases resolve');
+    assert.strictEqual(r.spec.control, 'space', 'request words become a spec');
     assert.ok(written['game/engine.js'].includes('class GameKit'));
-    assert.ok(written['game/game.js'].includes('STARFALL'));
+    assert.ok(written['game/game.js'].includes('GAME_SPEC'), 'composed games carry their DNA');
     assert.ok(written['game/index.html'].includes('<canvas'));
+    // explicit preset still uses the hand-tuned template
+    const r2 = tool.run({ genre: 'platformer', dir: 'game2' }, ctx);
+    assert.strictEqual(r2.genre, 'platformer');
+    assert.ok(written['game2/game.js'].includes('MONO JUMP'));
     const list = entry.tools.find((t) => t.name === 'game_list');
     ctx.ws.tree = () => [{ name: 'game', path: 'game', type: 'dir', children: [
       { name: 'game.js', path: 'game/game.js', type: 'file' },
@@ -485,18 +489,69 @@ async function test(name, fn) {
     ctx.ws.read = () => written['game/game.js'];
     const l = list.run({}, ctx);
     assert.strictEqual(l.games.length, 1);
-    assert.strictEqual(l.games[0].title, 'STARFALL');
+    assert.strictEqual(l.games[0].dir, 'game');
   });
 
   await test('builtin routes game requests to the Game Studio plugin', async () => {
     const mk = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
-    const a1 = agent.parseActions(await mk('make a space shooter game'));
-    assert.ok(a1.some((a) => a.type === 'game_new' && a.genre === 'shmup'));
+    const a1 = agent.parseActions(await mk('make a space shooter game with bombs'));
+    const s1 = a1.find((a) => a.type === 'game_new');
+    assert.ok(s1, 'game_new emitted');
+    assert.strictEqual(s1.spec.control, 'space');
+    assert.ok(s1.spec.modifiers.includes('bomb'));
     const a2 = agent.parseActions(await mk('make a platformer game'));
     assert.ok(a2.some((a) => a.type === 'game_new' && a.genre === 'platformer'));
     const a3 = agent.parseActions(await mk('make a game'));
     assert.ok(a3.some((a) => a.type === 'game_new' && a.dir === 'game'));
     assert.ok(a3.some((a) => a.type === 'game_check'), 'game is verified after scaffolding');
+  });
+
+  await test('every shipped game runs 600 simulated frames headlessly', () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed']) {
+      const game = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', `${t}.js`), 'utf8');
+      runGame({ engineSrc: engine, gameSrc: game, frames: 600 }); // throws on any runtime error
+    }
+  });
+
+  await test('composed games from very different requests all run headlessly', () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const { parseSpec } = require('../shared/gamekit/spec.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const composed = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'composed.js'), 'utf8');
+    const requests = [
+      'make a zombie survival game with dash',
+      'flappy bird style pipe runner',
+      'space shooter with bombs and rapid fire',
+      'platformer reach the flag with double jump',
+      'collect gems topdown unarmed with magnet and shield'
+    ];
+    const seen = new Set();
+    for (const r of requests) {
+      const spec = parseSpec(r);
+      seen.add(JSON.stringify([spec.control, spec.enemies, spec.goal]));
+      const src = `const GAME_SPEC = ${JSON.stringify(spec)};\n` + composed;
+      runGame({ engineSrc: engine, gameSrc: src, frames: 400 });
+    }
+    assert.ok(seen.size >= 4, `requests must produce different DNA, got ${seen.size}`);
+  });
+
+  await test('parseSpec turns sentences into different game DNA', () => {
+    const { parseSpec, describeSpec } = require('../shared/gamekit/spec.cjs');
+    const a = parseSpec('zombie survival arena with dash');
+    const b = parseSpec('flappy pipe runner');
+    const c = parseSpec('space shooter with bombs');
+    assert.strictEqual(a.control, 'topdown');
+    assert.ok(a.enemies.includes('chaser'));
+    assert.ok(a.modifiers.includes('dash'));
+    assert.strictEqual(b.control, 'flap');
+    assert.ok(b.enemies.includes('pipes'));
+    assert.strictEqual(c.control, 'space');
+    assert.ok(c.modifiers.includes('bomb'));
+    assert.notStrictEqual(describeSpec(a), describeSpec(b));
+    assert.strictEqual(parseSpec('collect gems, no weapons, pacifist').weapon, 'none');
+    assert.strictEqual(parseSpec('neon cyber survival').theme, 'neon');
   });
 
   console.log('\nApp lock & audit');

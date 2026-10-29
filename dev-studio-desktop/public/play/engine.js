@@ -148,6 +148,8 @@
         x: rand(this.width), y: rand(this.height), z: rand(0.25, 1), r: rand(0.6, 2.2)
       }));
       this.best = this.load('best', 0);
+      this.titleCard = opts.titleCard || null; // { tagline, controls[] }
+      this.state = this.titleCard ? 'title' : 'play';
     }
 
     /* helpers -------------------------------------------------- */
@@ -158,6 +160,19 @@
     pick(arr) { return pick(arr); }
     dist(x1, y1, x2, y2) { return dist(x1, y1, x2, y2); }
     aabb(a, b) { return aabb(a, b); }
+    glow(x, y, r, col) {
+      const c = this.ctx;
+      c.globalAlpha = 0.22; c.fillStyle = col || this.accent;
+      c.beginPath(); c.arc(x, y, r * 2.4, 0, TAU); c.fill();
+      c.globalAlpha = 1; c.beginPath(); c.arc(x, y, r, 0, TAU); c.fill();
+    }
+    rrect(x, y, w, h, r, col) {
+      const c = this.ctx;
+      c.fillStyle = col || this.fg;
+      c.beginPath();
+      if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h);
+      c.fill();
+    }
     rect(x, y, w, h, col) { this.ctx.fillStyle = col || this.fg; this.ctx.fillRect(x, y, w, h); }
     circle(x, y, r, col) { this.ctx.fillStyle = col || this.fg; this.ctx.beginPath(); this.ctx.arc(x, y, r, 0, TAU); this.ctx.fill(); }
     text(str, x, y, size = 18, col, align = 'left', weight = 700) {
@@ -200,7 +215,13 @@
         while (this._acc >= step) {
           this.time += step;
           this.frame += 1;
-          if (this.scene && this.scene.update) this.scene.update(this, step);
+          if (this.state === 'title') {
+            if (this.input.pressed.size > 0 || this.input.mouse.clicked) {
+              this.state = 'play';
+              this.audio.chord([392, 523, 659], 0.14, 'triangle', 0.12);
+              this.burst(this.width / 2, this.height / 2, 24, this.accent, 300);
+            }
+          } else if (this.scene && this.scene.update) this.scene.update(this, step);
           this._updateParticles(step);
           this.shakeMag = lerp(this.shakeMag, 0, 0.18);
           this.input.endFrame();
@@ -241,18 +262,37 @@
       c.globalAlpha = 1;
       if (this.scene && this.scene.draw) this.scene.draw(this);
       for (const p of this.particles) {
-        c.globalAlpha = 1 - p.t / p.life;
+        const a = 1 - p.t / p.life;
+        c.globalAlpha = a * 0.25;              // glow halo
         c.fillStyle = p.col;
+        c.beginPath(); c.arc(p.x, p.y, p.r * 2.6, 0, TAU); c.fill();
+        c.globalAlpha = a;                     // hot core
         c.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
       }
       c.globalAlpha = 1;
       c.restore();
+      // vignette: cheap depth, keeps the eye centre-stage
+      const vg = c.createRadialGradient(this.width / 2, this.height / 2, this.height * 0.35, this.width / 2, this.height / 2, this.height * 0.95);
+      vg.addColorStop(0, 'rgba(0,0,0,0)');
+      vg.addColorStop(1, 'rgba(0,0,0,0.42)');
+      c.fillStyle = vg;
+      c.fillRect(0, 0, this.width, this.height);
       // HUD
       this.text(this.title, 16, 20, 14, this.fg, 'left', 800);
       this.text(`SCORE ${this.score}`, this.width - 16, 20, 14, this.fg, 'right', 800);
       this.text(`BEST ${this.best}`, this.width - 16, 40, 11, 'rgba(245,244,240,.55)', 'right', 600);
       if (this.audio.muted) this.text('MUTED (M)', 16, 40, 11, 'rgba(245,244,240,.55)', 'left', 600);
       if (this.input.hit('KeyM')) this.audio.muted = !this.audio.muted;
+      if (this.state === 'title' && this.titleCard) {
+        c.fillStyle = 'rgba(0,0,0,.55)'; c.fillRect(0, 0, this.width, this.height);
+        this.text(this.title, this.width / 2, this.height / 2 - 58, 52, this.fg, 'center', 800);
+        this.text(this.titleCard.tagline || '', this.width / 2, this.height / 2 - 18, 15, 'rgba(245,244,240,.75)', 'center', 500);
+        (this.titleCard.controls || []).forEach((line, i) => {
+          this.text(line, this.width / 2, this.height / 2 + 16 + i * 20, 13, 'rgba(245,244,240,.6)', 'center', 500);
+        });
+        if (this.frame % 70 < 45) this.text('PRESS ANY KEY', this.width / 2, this.height / 2 + 96, 14, this.accent, 'center', 800);
+        this.text(`BEST ${this.best}`, this.width / 2, this.height / 2 + 128, 11, 'rgba(245,244,240,.5)', 'center', 600);
+      }
       if (this.state === 'pause') {
         c.fillStyle = 'rgba(0,0,0,.62)'; c.fillRect(0, 0, this.width, this.height);
         this.text('PAUSED', this.width / 2, this.height / 2 - 10, 40, this.fg, 'center', 800);

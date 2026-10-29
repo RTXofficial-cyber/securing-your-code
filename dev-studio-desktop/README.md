@@ -252,6 +252,25 @@ the official **game-studio plugin** (`action:game_new`) copies the engine +
 template into `game/`, then `action:game_check` syntax-verifies it. Press the
 **▶ play** button in the activity bar and the game opens in your browser.
 
+### Any game, not four games
+Free-form requests go through the **spec composer** (`shared/gamekit/spec.cjs`):
+your sentence becomes game DNA — control scheme (`platform / runner / flap /
+topdown / space`), enemy behaviours (`chaser / shooter / dropper / walker /
+pipes`), weapon, goal (`survive / reach / collect / waves`), modifiers
+(`dash / double-jump / bomb / shield / magnet / rapid`) and theme
+(`mono / neon / paper / crt`). The **composed runtime**
+(`templates/composed.js`) implements every combination, so *"zombie survival
+with dash"* and *"flappy pipe runner"* are different games, not reskins. The
+generated `game/game.js` starts with its `GAME_SPEC` so you can read and edit
+the DNA yourself. Bare requests (`make a platformer`) still use the four
+hand-tuned templates.
+
+### Games are proven to run
+`test/harness/headless.cjs` loads the engine + every game into a VM with a
+stubbed canvas/DOM/audio and pumps 600 frames of simulated input. Any runtime
+error fails the build — "the game doesn't run" cannot ship. It already caught
+a real crash in a template, which is now fixed.
+
 The same four games ship inside the app as an arcade: open
 `<app>/play/` (or `/play/` on the preview server) and play them with no
 install — proof the engine is real, not a promise.
