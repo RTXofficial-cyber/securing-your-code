@@ -1,8 +1,0 @@
-{
-  "id": "workspace-inspector",
-  "name": "Workspace Inspector",
-  "version": "1.0.0",
-  "entry": "index.cjs",
-  "description": "Lets the AI analyse your whole project (stack, size, TODOs, structure) and search code across every file — offline.",
-  "type": "tools"
-}

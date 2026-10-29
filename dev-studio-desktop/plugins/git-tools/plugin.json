@@ -1,9 +1,0 @@
-{
-  "id": "git-tools",
-  "name": "Git tools",
-  "version": "1.0.0",
-  "description": "Adds agent actions for version control: git_init, git_status, git_commit, git_log. The AI can manage your repo.",
-  "type": "tools",
-  "entry": "index.cjs",
-  "enabledByDefault": true
-}

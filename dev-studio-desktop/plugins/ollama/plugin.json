@@ -1,9 +1,0 @@
-{
-  "id": "ollama",
-  "name": "Ollama (local models)",
-  "version": "1.0.0",
-  "description": "Connect models running on your own machine through Ollama (localhost:11434). No API key, no internet required.",
-  "type": "provider",
-  "entry": "index.cjs",
-  "enabledByDefault": true
-}
