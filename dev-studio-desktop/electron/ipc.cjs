@@ -13,6 +13,7 @@ const { PluginManager } = require('../shared/plugins.cjs');
 const { LockManager } = require('../shared/lock.cjs');
 const { MemoryStore } = require('../shared/memory.cjs');
 const autopilot = require('../shared/autopilot.cjs');
+const builtinBrain = require('../shared/builtin.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full', bridgeGuests: [], memory: null };
 function getState() {
@@ -23,6 +24,10 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
   state.rootRef = { value: workspace };
   state.permissions = { runCommands: true, writeFiles: true };
   const ws = makeWorkspaceHelpers(state.rootRef);
+  // The offline brain may READ the workspace (sandboxed helper) so it can
+  // explain real files and quote real error lines. Writes still go through
+  // action blocks + permission gates.
+  builtinBrain.setWorkspace(ws);
 
   // Single source of truth for handlers: every channel is registered with
   // Electron AND kept here so the loopback bridge can call the very same

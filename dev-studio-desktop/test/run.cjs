@@ -584,6 +584,57 @@ async function test(name, fn) {
     assert.strictEqual(f.query, 'TODO');
   });
 
+  console.log('\nStudio Agent v3 brain');
+  const brain = require('../shared/builtin.cjs');
+
+  await test('brain reads real workspace files to explain them', async () => {
+    const dir = path.join(tmp, 'brainws');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'logic.js'),
+      'const fs = require("fs");\nfunction add(a, b) { return a + b; }\nfunction mul(a, b) { return a * b; }\nmodule.exports = { add, mul };\n// TODO: div\n');
+    brain.setWorkspace(makeWorkspaceHelpers({ value: dir }));
+    const r = await brain.chat('studio-agent-2', [{ role: 'user', content: 'explain logic.js' }]);
+    assert.match(r, /add/);
+    assert.match(r, /mul/);
+    assert.match(r, /TODO/);
+    assert.match(r, /lines/);
+    const show = await brain.chat('studio-agent-2', [{ role: 'user', content: 'show logic.js' }]);
+    assert.match(show, /function add/);
+  });
+
+  await test('error doctor diagnoses pasted traces with concrete fixes', async () => {
+    const r1 = await brain.chat('x', [{ role: 'user', content: "node server.js\nError: Cannot find module 'express'\n    at require (node.js:1:1)" }]);
+    assert.match(r1, /missing module/i);
+    assert.match(r1, /npm install express/);
+    const acts = agent.parseActions(r1);
+    assert.ok(acts.some((a) => a.type === 'run_command' && /npm install express/.test(a.command)));
+    const r2 = await brain.chat('x', [{ role: 'user', content: 'listen EADDRINUSE: address already in use :::8080' }]);
+    assert.match(r2, /port/i);
+    const r3 = await brain.chat('x', [{ role: 'user', content: "TypeError: app.listen is not a function" }]);
+    assert.match(r3, /type error/i);
+  });
+
+  await test('follow-ups work: run it, fix it, rename, guarded delete', async () => {
+    fs.writeFileSync(path.join(tmp, 'brainws', 'hello.js'), 'console.log(1);\n');
+    await brain.chat('x', [{ role: 'user', content: 'write a node script that greets me' }]);
+    const run = await brain.chat('x', [{ role: 'user', content: 'run it' }]);
+    const acts = agent.parseActions(run);
+    assert.ok(acts.some((a) => a.type === 'run_command' && /node hello\.js/.test(a.command)), 'runs the last scaffolded file');
+
+    await brain.chat('x', [{ role: 'user', content: "Error: Cannot find module 'left-pad'" }]);
+    const fix = await brain.chat('x', [{ role: 'user', content: 'fix it' }]);
+    assert.ok(agent.parseActions(fix).some((a) => /npm install left-pad/.test(a.command || '')), 'replays the stored fix');
+
+    const ren = await brain.chat('x', [{ role: 'user', content: 'rename hello.js to greet.js' }]);
+    assert.ok(agent.parseActions(ren).some((a) => a.type === 'run_command' && /(mv|move)/.test(a.command)));
+
+    const guard = await brain.chat('x', [{ role: 'user', content: 'delete hello.js' }]);
+    assert.match(guard, /confirm/i);
+    assert.strictEqual(agent.parseActions(guard).length, 0, 'delete needs explicit confirmation');
+    const conf = await brain.chat('x', [{ role: 'user', content: 'yes delete hello.js' }]);
+    assert.ok(agent.parseActions(conf).some((a) => /(rm|del)/.test(a.command)));
+  });
+
   console.log('\nAutopilot');
   const autopilot = require('../shared/autopilot.cjs');
 

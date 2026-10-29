@@ -211,6 +211,23 @@ Dev Studio (.exe)  ── owns ──▶  C:\your\workspace   ◀── same fil
 - Close it any time: Settings → Security → `stop`, or quit the app. Nothing is
   left listening when the app exits, and every start/open/mode-change is audited.
 
+## The built-in AI is an agent, not a chatbot
+
+Studio Agent (offline, no key) now behaves like a personal engineer:
+
+- **Reads your real files** — `explain server.js` / `show app.py` answer from the
+  actual content: dependencies, defined functions, exports, TODO markers.
+- **Debugs with you** — paste any trace (`Cannot find module 'x'`, EADDRINUSE,
+  ENOENT, `is not a function`, CORS, Python import errors, git conflicts…) and
+  it returns a diagnosis, the failing snippet from your file when it can find
+  the line, concrete fix steps, and a *safe* action (e.g. `npm install x`).
+  `fix it` replays the stored fix.
+- **Understands follow-ups** — `run it` executes the last scaffolded file,
+  `rename a.js to b.js` works, and `delete x.js` demands an explicit
+  `yes delete x.js` confirmation before any action exists.
+- Everything mutating still travels as action blocks through the permission
+  gates and the audit log; reads use the sandboxed workspace helper.
+
 ## Autopilot — autonomous plan → execute → verify → fix
 
 Flip the chat to **Auto** and give it a goal: *"add a login page with

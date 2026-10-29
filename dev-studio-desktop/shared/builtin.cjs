@@ -501,6 +501,9 @@ function identityAnswer(t) {
     '- Poore projects likhna + verify karna: `build me a website`, `create an api`, `make a python server`, `write a cli tool`, `make a game`, `make a todo app`',
     '- Concepts samjhana: recursion, async, git, SQL, regex, CSS layout, security, testing, Big-O, Docker, React, Node, Python…',
     '- Aapka project analyze karna: "analyze my project" → stack, sizes, TODOs, structure ka audit report',
+    '- Debugging saath: error paste karein → diagnosis + fix (+ safe action); "fix it" se apply',
+    '- Asli files parhna: "explain server.js", "show app.py" → real content se jawab',
+    '- Follow-ups: "run it" pichhli file chalata hai; rename/delete bhi (delete mein confirmation lazmi)',
     '- Code search: "find TODO in my code" → har file mein path:line matches',
     '- Math: `what is (2+3)*4%7?`',
     '- Workspace dekhna: `list my files` · environment: `run environment check`',
@@ -571,12 +574,110 @@ function openAnswer(question, text) {
   ].join('\n');
 }
 
+
+/* ------------------------------------------------------------------ */
+/* Living session + real workspace access (read-only, sandboxed)       */
+/* ------------------------------------------------------------------ */
+
+const session = { lastFiles: [], lastFix: null, lastTopic: null };
+let WS = null;
+
+function setWorkspace(ws) { WS = ws || null; }
+function readRel(rel) {
+  try { return WS && typeof WS.read === 'function' ? WS.read(rel) : null; } catch { return null; }
+}
+function note(files) { session.lastFiles = (files || []).slice(0, 8); }
+
+/* Error doctor: pasted trace -> diagnosis + concrete fix (+ safe actions) */
+const NAME = "[A-Za-z0-9@/._-]+";
+const ERRORS = [
+  { m: new RegExp(`Cannot find module '(${NAME})'`), kind: 'missing module',
+    why: (n) => `The package "${n}" is imported but not installed in this workspace.`,
+    steps: () => ['Install it with npm (action below), or', 'remove/replace the import if it was accidental.'],
+    acts: (n) => [action('run_command', { command: `npm install ${n}` })] },
+  { m: /SyntaxError([^\n]*)/i, kind: 'syntax error',
+    why: (x) => `JavaScript rejected the file: ${String(x).trim().slice(0, 140)}`,
+    steps: () => ['Run `node --check <file>` — it points at the exact line.', 'Usual suspects: missing comma/brace, a stray quote, JSON with trailing comma.'],
+    acts: () => [] },
+  { m: /EADDRINUSE|address already in use/i, kind: 'port already in use',
+    why: () => 'Another process is holding the port your server wants.',
+    steps: () => ['Pick a different port in the code, or', IS_WIN ? 'find and stop it: `netstat -ano | findstr :<port>` then `taskkill /PID <pid> /F`.' : 'stop it: `lsof -i :<port>` then `kill <pid>`.'],
+    acts: () => [] },
+  { m: /ENOENT([^\n]*)/i, kind: 'missing file or folder',
+    why: (x) => `A path does not exist: ${String(x).trim().slice(0, 140)}`,
+    steps: () => ['Check spelling and cwd — relative paths resolve against the terminal folder.', 'Create the folder/file first, or use an absolute path.'],
+    acts: () => [] },
+  { m: /([A-Za-z0-9_$]+) is not defined/i, kind: 'undefined variable',
+    why: (n) => `"${n}" is used before (or without) a declaration in that scope.`,
+    steps: () => ['Declare it (const/let) or fix the typo — names are case-sensitive.', 'If it comes from another file, the import/require is missing.'],
+    acts: () => [] },
+  { m: /([A-Za-z0-9_$]+) is not a function/i, kind: 'type error',
+    why: (n) => `"${n}" exists but is not callable — often a wrong import shape.`,
+    steps: () => ['Log `typeof name` and the import: default vs named export mismatch is the usual cause.'],
+    acts: () => [] },
+  { m: /Access-Control-Allow-Origin|CORS|cross-origin/i, kind: 'CORS (browser policy)',
+    why: () => 'The browser blocked a cross-origin request; the SERVER must allow it.',
+    steps: () => ['Add `Access-Control-Allow-Origin` on the server response, or', 'proxy the call through your own dev server so it is same-origin.'],
+    acts: () => [] },
+  { m: /IndentationError|ModuleNotFoundError: No module named '([A-Za-z0-9_]+)'/i, kind: 'python problem',
+    why: (n) => (n ? `Python cannot import "${n}".` : 'Python indentation is broken — blocks must align exactly.'),
+    steps: () => ['Install with `pip install <name>` inside the same interpreter/venv,', 'and keep one indentation style (4 spaces) everywhere.'],
+    acts: (n) => (n ? [action('run_command', { command: `${PY} -m pip install ${n}` })] : []) },
+  { m: /EACCES|permission denied/i, kind: 'permissions',
+    why: () => 'The OS refused the operation for this user.',
+    steps: () => ['Do not reach for admin/root first — move the target into your workspace,', 'or fix ownership/flags (icacls on Windows, chmod/chown elsewhere).'],
+    acts: () => [] },
+  { m: /CONFLICT \(content\)|Merge conflict/i, kind: 'git merge conflict',
+    why: () => 'Both branches changed the same lines; git needs a human decision.',
+    steps: () => ['Open the file, resolve each <<<< ==== >>>> block, then', '`git add <file>` and `git commit` (or `git merge --abort` to bail).'],
+    acts: () => [] },
+  { m: /Unexpected token ([^\n]*)/i, kind: 'parse error (JS or JSON)',
+    why: (x) => `The parser choked on: ${String(x).trim().slice(0, 80)}`,
+    steps: () => ['If it is JSON.parse: log the raw string first — servers return HTML on errors.', 'If it is JS: look one line ABOVE the reported position.'],
+    acts: () => [] }
+];
+
+function doctor(text) {
+  for (const e of ERRORS) {
+    const m = e.m.exec(text);
+    if (m) return { e, arg: m[1] || '' };
+  }
+  return null;
+}
+
+function fileMention(text) {
+  const m = /([A-Za-z0-9_./\\-]+\.(?:[cm]?js|jsx|ts|tsx|py|html|css|json|md|cjs|mjs))/.exec(text);
+  return m ? m[1].replace(/^[\\/]+/, '') : null;
+}
+
+function explainFile(rel) {
+  const src = readRel(rel);
+  if (src === null) return null;
+  const lines = src.split('\n');
+  const fns = [...src.matchAll(/function\s+([A-Za-z0-9_]+)|(?:const|let|var)\s+([A-Za-z0-9_]+)\s*=\s*(?:\([^)]*\)|[A-Za-z0-9_]+)\s*=>/g)]
+    .map((m) => m[1] || m[2]).filter(Boolean);
+  const imports = [...src.matchAll(/require\(['"]([^'"]+)['"]\)|from\s+['"]([^'"]+)['"]/g)]
+    .map((m) => m[1] || m[2]).filter(Boolean);
+  const todos = src.match(/\b(TODO|FIXME|HACK|XXX)\b[^\n]*/g) || [];
+  const kind = /\.html?$/.test(rel) ? 'markup' : /\.css$/.test(rel) ? 'stylesheet' : /\.json$/.test(rel) ? 'data' : 'code';
+  return [
+    `**${rel}** — ${lines.length} lines of ${kind}.`,
+    imports.length ? `depends on: ${[...new Set(imports)].slice(0, 8).join(', ')}` : 'no external dependencies',
+    fns.length ? `defines: ${[...new Set(fns)].slice(0, 10).join(', ')}` : 'defines no named functions',
+    /module\.exports|export\s/.test(src) ? 'exports something other files can import' : 'self-contained (no exports)',
+    todos.length ? `open markers: ${todos.slice(0, 4).join(' · ')}` : 'no TODO markers',
+    '',
+    'Chaho to main is file mein kuch bhi badal sakta hoon: "add a function X to ' + rel + '", "rename ' + rel + ' to other.js", ya koi error paste karo.'
+  ].join('\n');
+}
+
 /* ------------------------------------------------------------------ */
 /* Intent routing                                                      */
 /* ------------------------------------------------------------------ */
 
 async function chat(model, messages) {
-  const text = lastUser(messages).toLowerCase();
+  const raw = lastUser(messages);
+  const text = raw.toLowerCase();
 
   // When filling a team role in the ensemble pipeline, answer as that role.
   const role = detectRole(messages);
@@ -616,6 +717,79 @@ async function chat(model, messages) {
     ].join('\n\n');
   }
 
+  // ---- pasted error -> diagnosis + fix (the "debug with me" mode) ----
+  const diag = doctor(raw);
+  if (diag && raw.length > 24) {
+    const { e, arg } = diag;
+    const rel = fileMention(raw);
+    const src = rel ? readRel(rel) : null;
+    let snippet = '';
+    if (src) {
+      const lm = /:(\d+)(?::|\s*$)/m.exec(text.split('\n').slice(1).join('\n')) || /\(([^:()]+):(\d+):/.exec(text);
+      const ln = lm ? Number(lm[2] || lm[1]) : 0;
+      if (ln > 0) {
+        const ls = src.split('\n');
+        snippet = '\n```\n' + ls.slice(Math.max(0, ln - 3), ln + 2).map((l, i) => `${Math.max(0, ln - 3) + i + 1}: ${l}`).join('\n') + '\n```\n';
+      }
+    }
+    const acts = e.acts(arg) || [];
+    session.lastFix = acts;
+    session.lastTopic = diag.e.kind;
+    return [
+      `**Diagnosis: ${e.kind}.**`,
+      e.why(arg),
+      snippet ? `Around the failure in **${rel}**:${snippet}` : '',
+      'Fix:',
+      ...e.steps(arg).map((x, i) => `${i + 1}. ${x}`),
+      acts.length ? '' : 'Bolo "fix it" nahi — is mein action zaroori nahi, steps kaafi hain.',
+      acts.length ? 'Applying the safe part now:' : ''
+    ].filter((x) => x !== '').join('\n') + (acts.length ? '\n' + acts.join('\n') : '');
+  }
+
+  // ---- explain / show a real file from the workspace ----
+  const relName = fileMention(raw);
+  if (relName && /explain|samjhao|what does|kya karta|walk me through|analyze file/.test(text)) {
+    const ex = explainFile(relName);
+    if (ex) return ex;
+    return `Workspace mein **${relName}** nahi mili. "list my files" se dekhein kya मौजूद hai.`;
+  }
+  if (relName && /^(show|read|print|cat|kholo|dikhao)\b/.test(text)) {
+    const src = readRel(relName);
+    if (src === null) return `**${relName}** workspace mein nahi mili.`;
+    const head = src.split('\n').slice(0, 40).join('\n');
+    return `**${relName}** (first 40 lines):\n\`\`\`\n${head}\n\`\`\``;
+  }
+
+  // ---- follow-ups: run it / fix it / rename / delete ----
+  if (/^(run it|run this|chalo|chalao|execute it|test it|ab run karo)\b/.test(text) || /^run (it|this)$/.test(text.trim())) {
+    const f = session.lastFiles.find((x) => /\.(js|cjs|mjs|py)$/.test(x)) || session.lastFiles[0];
+    if (!f) return 'Pehle kuch banana hoga — "write a cli tool" ya "make a game" boliye, phir "run it".';
+    if (/\.html?$/.test(f)) return `**${f}** browser mein khulta hai: ▶ button dabaiye, ya file par double-click. Koi server chahiye to: \`${PY} -m http.server 8080\``;
+    const cmd = /\.py$/.test(f) ? `${PY} ${f}` : `node ${f}`;
+    return [`Chala raha hoon **${f}**…`, action('run_command', { command: cmd }), 'Output upar hai. Error aaye to paste kar den — main diagnose karunga.'].join('\n\n');
+  }
+  if (/^(fix it|theek karo|apply the fix|lagao fix)\b/.test(text)) {
+    if (!session.lastFix || !session.lastFix.length) return 'Koi pending fix nahi — pehle error paste karein, phir "fix it".';
+    return ['Pichhli diagnosis ka safe hissa apply kar raha hoon:', ...session.lastFix].join('\n');
+  }
+  const ren = /rename ([A-Za-z0-9_./\-]+) (?:to|->) ([A-Za-z0-9_./\-]+)/i.exec(raw);
+  if (ren) {
+    const src = readRel(ren[1]);
+    if (src === null) return `**${ren[1]}** mili nahi, rename nahi kar sakta.`;
+    const mv = IS_WIN ? `move "${ren[1]}" "${ren[2]}"` : `mv "${ren[1]}" "${ren[2]}"`;
+    note([ren[2]]);
+    return [`**${ren[1]}** → **${ren[2]}** (content untouched):`, action('run_command', { command: mv })].join('\n\n');
+  }
+  const del = /(?:delete|remove|htao) (?:the file )?([A-Za-z0-9_./\-]+\.[a-zA-Z]{1,5})/i.exec(raw);
+  if (del && /sure|confirm|pakka|^yes/i.test(text) === false && /delete|remove|htao/.test(text)) {
+    return `**${del[1]}** delete karna irreversible hai. Confirm karne ke liye likhein: "yes delete ${del[1]}" — main tab action banaunga.`;
+  }
+  if (/^yes (delete|remove) ([A-Za-z0-9_./\-]+)$/i.test(text.trim())) {
+    const f = /^yes (?:delete|remove) ([A-Za-z0-9_./\-]+)$/i.exec(text.trim())[1];
+    const rm = IS_WIN ? `del "${f}"` : `rm -f "${f}"`;
+    return [`Theek hai — **${f}** delete ho rahi hai:`, action('run_command', { command: rm })].join('\n\n');
+  }
+
   // ---- question-shaped concept queries get explained BEFORE any build ----
   if (isQuestion(text) && !/(write|make|build|create|generate|scaffold)/.test(text)) {
     const kb = kbAnswer(text);
@@ -626,6 +800,7 @@ async function chat(model, messages) {
   if (/(static site|website|landing|web ?page|portfolio|homepage)/.test(text)) {
     return [
       'Plan: (1) scaffold a dependency-free static site, (2) syntax-check the JS, (3) list what landed.',
+      note(['index.html', 'styles.css', 'app.js']),
       writeAll(SITE),
       run('node --check app.js'),
       list(),
@@ -636,6 +811,7 @@ async function chat(model, messages) {
   if (/python|flask|django|\bpy\b/.test(text)) {
     return [
       'Plan: (1) write a dependency-free Python HTTP server, (2) byte-compile it to prove it is valid.',
+      note(['app.py']),
       writeAll(PYAPP),
       run(`${PY} -m py_compile app.py && echo COMPILE_OK`),
       `Created **app.py**. Run \`${PY} app.py\` in the terminal and open http://localhost:8080. Want it to read/write JSON files or serve HTML next?`
@@ -645,6 +821,7 @@ async function chat(model, messages) {
   if (/\bapi\b|backend|rest|server|http endpoint|microservice/.test(text)) {
     return [
       'Plan: (1) write a dependency-free Node HTTP API, (2) syntax-check it, (3) smoke-test the health route.',
+      note(['server.js']),
       writeAll(API),
       run('node --check server.js'),
       `Created **server.js** with routes \`/\`, \`/health\` and \`/api/hello?name=you\`. Start it in the terminal with \`node server.js\`, then hit http://localhost:8080/health. I can add POST routes, JSON persistence, or auth next.`
@@ -654,6 +831,7 @@ async function chat(model, messages) {
   if (/\bcli\b|command line|command-line tool|argparse|terminal app/.test(text)) {
     return [
       'Plan: (1) write a CLI with flags, (2) run its --help, (3) run it for real.',
+      note(['cli.js']),
       writeAll(CLI),
       run('node cli.js --help'),
       run('node cli.js --name DevStudio --loud'),
@@ -689,6 +867,7 @@ async function chat(model, messages) {
   if (/todo|task|checklist|kanban/.test(text)) {
     return [
       'Plan: (1) write a single-file todo app with localStorage persistence, (2) confirm it landed.',
+      note(['todo.html']),
       writeAll(TODO),
       list(),
       'Created **todo.html** — tasks persist in localStorage. Open it in a browser. I can add due dates, filters, or export next.'
@@ -710,6 +889,7 @@ async function chat(model, messages) {
   if (/(script|hello|node|javascript|\bjs\b|program|function|code)/.test(text)) {
     return [
       'Plan: (1) write the script, (2) run it to prove it works.',
+      note(['hello.js']),
       writeAll(NODE_HELLO),
       run('node hello.js DevStudio'),
       '**hello.js** is in your workspace — open it from the file tree, or ask me to turn it into a CLI, an API, or a site.'
@@ -746,6 +926,7 @@ async function chat(model, messages) {
 
 module.exports = {
   id: 'builtin',
+  setWorkspace,
   name: 'Dev Studio AI',
   vendor: 'Built-in · offline',
   description: 'Offline planning engine. Writes whole projects and verifies them. Needs no key, no internet.',
