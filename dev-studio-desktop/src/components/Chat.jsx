@@ -76,7 +76,7 @@ function Pipeline({ steps }) {
 
 const WELCOME = `Welcome to Dev Studio.
 
-**Auto mode** (below) is autonomous: it plans the goal, writes and runs the code, verifies it (exit codes), and on failure feeds the error back and fixes it — up to 3 loops, always inside your permission toggles.\n\n**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
+**Deep mode** (below) is the full agent: it researches the live web (cited answers, Perplexity-style), plans, writes and runs code, verifies with exit codes, and finishes with syntax checks on every file it wrote.\n\n**Auto mode** (below) is autonomous: it plans the goal, writes and runs the code, verifies it (exit codes), and on failure feeds the error back and fixes it — up to 3 loops, always inside your permission toggles.\n\n**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
 
 Solo mode uses one model. Click any “wrote …” line to open that file.`;
 
@@ -86,6 +86,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
   const [agentMode, setAgentMode] = useState(true);
   const [teamMode, setTeamMode] = useState(false);
   const [autoMode, setAutoMode] = useState(false);
+  const [deepMode, setDeepMode] = useState(false);
   const [roles, setRoles] = useState([]);
   const [overrides, setOverrides] = useState({});
   const [messages, setMessages] = useState([{ role: 'assistant', content: WELCOME, actionResults: [] }]);
@@ -116,7 +117,27 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
     setBusy(true);
 
     try {
-      if (autoMode) {
+      if (deepMode) {
+        setMessages((h) => [...h, { role: 'assistant', content: 'DEEP — researching the live web, planning, executing, verifying and checking… (this can take a minute)', actionResults: [] }]);
+        const res = await api.deepRun({ goal: text, provider, model });
+        setMessages((h) => h.slice(0, -1).concat(res?.ok || res?.mode ? [{
+          role: 'assistant',
+          content: [
+            res.mode === 'answer'
+              ? `DEEP RESEARCH ✓ — ${res.research?.count || 0} live source(s) via ${res.research?.source || 'web'}\n\n${res.answer || ''}`
+              : [
+                `DEEP ${res.ok ? '✓ VERIFIED + CHECKED' : '✗ STOPPED'} — ${res.mission?.summary || res.goal}`,
+                res.research?.count ? `\n[research] ${res.research.count} live source(s) via ${res.research.source}:\n${res.research.results.slice(0, 4).map((r, i) => `${i + 1}. [${r.title}](${r.url})`).join('\n')}` : '',
+                ...(res.mission?.iterations || []).map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1200)}`),
+                res.checks?.length ? `\n[check] ${res.checks.map((c) => `${c.file} → ${c.cmd} → exit ${c.code}`).join('\n')}` : '',
+                `\nfiles: ${res.mission?.files?.length ? res.mission.files.join(', ') : 'none'}`,
+                res.error ? `error: ${res.error}` : ''
+              ].filter(Boolean).join('\n')
+          ].flat().filter(Boolean).join('\n'),
+          actionResults: []
+        }] : [{ role: 'error', content: res?.error || 'Deep run failed', actionResults: [] }]));
+        if (res?.mission?.files?.length) { onAgentActed?.(); onFileCreated?.(res.mission.files[0]); }
+      } else if (autoMode) {
         setMessages((h) => [...h, { role: 'assistant', content: 'AUTOPILOT — planning, executing and verifying… (this can take a minute)', actionResults: [] }]);
         const res = await api.autoRun({ goal: text, provider, model });
         setMessages((h) => h.slice(0, -1).concat(res?.ok || res?.iterations ? [{
@@ -184,9 +205,10 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
         <div className="chat-row">
           <span className="chat-title">AI</span>
           <div className="mode-switch">
-            <button className={`mode-btn ${!teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(false); setAutoMode(false); }}>Solo</button>
-            <button className={`mode-btn ${teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(true); setAutoMode(false); }}>Team</button>
-            <button className={`mode-btn ${autoMode ? 'on' : ''}`} title="Autonomous: plan, execute, verify and fix — inside your permissions" onClick={() => { setAutoMode(true); setTeamMode(false); }}>Auto</button>
+            <button className={`mode-btn ${!teamMode && !autoMode && !deepMode ? 'on' : ''}`} onClick={() => { setTeamMode(false); setAutoMode(false); setDeepMode(false); }}>Solo</button>
+            <button className={`mode-btn ${teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(true); setAutoMode(false); setDeepMode(false); }}>Team</button>
+            <button className={`mode-btn ${autoMode ? 'on' : ''}`} title="Autonomous: plan, execute, verify and fix — inside your permissions" onClick={() => { setAutoMode(true); setTeamMode(false); setDeepMode(false); }}>Auto</button>
+            <button className={`mode-btn ${deepMode ? 'on' : ''}`} title="Deep: live web research + plan + execute + verify + final checks" onClick={() => { setDeepMode(true); setTeamMode(false); setAutoMode(false); }}>Deep</button>
           </div>
           <button className="icon-btn" onClick={onHide} title="Hide panel">✕</button>
         </div>

@@ -57,6 +57,8 @@ const studio = {
 
   gameOpen: () => ipcRenderer.invoke('game:open'),
   autoRun: (payload) => ipcRenderer.invoke('auto:run', payload),
+  deepRun: (payload) => ipcRenderer.invoke('deep:run', payload),
+  webSearch: (payload) => ipcRenderer.invoke('web:search', payload),
 
   // ---- loopback bridge (open this same workspace in Chrome) ----
   bridgeStart: (mode) => ipcRenderer.invoke('bridge:start', mode),

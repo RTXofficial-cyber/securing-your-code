@@ -14,6 +14,8 @@ const { LockManager } = require('../shared/lock.cjs');
 const { MemoryStore } = require('../shared/memory.cjs');
 const autopilot = require('../shared/autopilot.cjs');
 const builtinBrain = require('../shared/builtin.cjs');
+const websearch = require('../shared/websearch.cjs');
+const deep = require('../shared/deep.cjs');
 
 const state = { terminal: null, rootRef: null, permissions: null, bridge: null, bridgeMode: 'full', bridgeGuests: [], memory: null };
 function getState() {
@@ -395,6 +397,40 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     }
   });
 
+  // ---------- deep mode: research -> plan -> execute -> verify -> check ----------
+  handle('deep:run', async (_e, payload) => {
+    const { goal, provider, model, maxIterations } = payload || {};
+    if (!goal || typeof goal !== 'string') return { ok: false, error: 'goal is required' };
+    try {
+      const r = await deep.deepRun({
+        goal,
+        provider: provider || 'builtin',
+        model: model || null,
+        ws,
+        permissions: state.permissions,
+        chat: (pr, md, messages) => providers.chat(pr, md, messages),
+        maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3))
+      });
+      lock.audit('deep.run', { goal: goal.slice(0, 120), mode: r.mode, ok: r.ok, checks: r.checks.length, files: r.mission ? r.mission.files.length : 0 });
+      return { ok: true, ...r };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  // ---------- live web search (read-only; guests may use it) ----------
+  handle('web:search', async (_e, payload) => {
+    const q = String((payload && payload.query) || '').slice(0, 200);
+    if (!q.trim()) return { ok: false, error: 'query is required' };
+    try {
+      const r = await websearch.deepResearch(q);
+      lock.audit('web.search', { q: q.slice(0, 80), n: (r.results || []).length });
+      return { ok: true, ...r };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
   // ---------- workspace memory (persistent project context) ----------
   // Lives at <workspace>/.dev-studio/memory.json so it travels with the project.
   function memoryStore() {
@@ -477,7 +513,9 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     memoryRemoveTask: 'memory:removeTask',
     memoryClear: 'memory:clear',
     bridgeGuestList: 'bridge:guestList',
-    autoRun: 'auto:run'
+    autoRun: 'auto:run',
+    deepRun: 'deep:run',
+    webSearch: 'web:search'
   };
 
   // Methods a read-only Chrome tab must NOT be able to call.
@@ -489,7 +527,8 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     'bridgeSetMode',
     'memoryProject', 'memoryAddNote', 'memoryUpdateNote', 'memoryRemoveNote',
     'memoryAddTask', 'memorySetTask', 'memoryRemoveTask', 'memoryClear',
-    'autoRun'
+    'autoRun',
+    'deepRun'
   ];
 
   const bridgeImpl = {};

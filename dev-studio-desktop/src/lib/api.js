@@ -159,6 +159,22 @@ const mock = {
       files: ['demo.js'], error: null
     };
   },
+  deepRun: async ({ goal } = {}) => {
+    await sleep(500);
+    return {
+      ok: true, goal, provider: 'mock', mode: 'answer',
+      research: { source: 'duckduckgo', offline: false, count: 2, results: [
+        { title: 'Mock: ' + goal, url: 'https://example.com/a', snippet: 'Browser-only preview — desktop app does live research.' },
+        { title: 'Mock result two', url: 'https://example.com/b', snippet: 'Connect the bridge (or the .exe) for real web search.' }
+      ] },
+      answer: '**' + goal + '**\n\nLive web se (duckduckgo):\n\n1. [Mock: ' + goal + '](https://example.com/a)\n   Browser-only preview — desktop app does live research.\n2. [Mock result two](https://example.com/b)\n   Connect the bridge (or the .exe) for real web search.',
+      mission: null, checks: [], error: null
+    };
+  },
+  webSearch: async ({ query } = {}) => ({
+    ok: true, query, source: 'mock', offline: false, summary: '',
+    results: [{ title: 'Mock: ' + query, url: 'https://example.com/a', snippet: 'Browser-only preview result.' }]
+  }),
   bridgeStart: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeOpen: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeStop: async () => ({ ok: true, running: false }),
@@ -304,6 +320,8 @@ function makeBridgeTransport(token) {
     bridgeSetMode: (m) => rpc('bridgeSetMode', m),
     bridgeGuestList: () => rpc('bridgeGuestList'),
     autoRun: (p) => rpc('autoRun', p),
+    deepRun: (p) => rpc('deepRun', p),
+    webSearch: (p) => rpc('webSearch', p),
     // minting or revoking guest links is a desktop-app-only privilege
     bridgeGuestCreate: desktopOnly('Creating guest links is desktop-only'),
     bridgeGuestRevoke: desktopOnly('Revoking guest links is desktop-only'),

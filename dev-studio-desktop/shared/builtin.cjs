@@ -576,6 +576,8 @@ function openAnswer(question, text) {
 }
 
 
+const websearch = require('./websearch.cjs');
+
 /* ------------------------------------------------------------------ */
 /* Living session + real workspace access (read-only, sandboxed)       */
 /* ------------------------------------------------------------------ */
@@ -932,6 +934,21 @@ async function chat(model, messages) {
     if (res.error) return res.error;
     note([res.ok && m[1], (splitInto ? m[2] : String(m[1]).replace(/\.(js|cjs)$/, (x) => '-lib' + x))].filter(Boolean));
     return res.reply;
+  }
+
+  // ---- live web search (Perplexity-style, cited) ----
+  const srch = /^(?:web\s+)?(?:search|google|ddg|khojo)\s+(?:karo\s+|for\s+)?(.+)/i.exec(raw.trim());
+  if (srch && !/in (my|the) (code|project|workspace)|workspace mein/i.test(raw)) {
+    const q = srch[1].trim();
+    const res = await websearch.deepResearch(q);
+    if (!res.results.length) {
+      return `Web search "${q}" se kuch nahi mila — ya to internet nahi hai, ya source block kar raha hai. Offline built-in jawab ke liye sawal seedha likhein (bina "search" ke).`;
+    }
+    const lines = [`**${q}** — live web se (${res.source}):`];
+    if (res.summary) lines.push('', `> ${res.summary.split('\n')[0]}`);
+    lines.push('', ...res.results.slice(0, 6).map((r, i) => `${i + 1}. [${r.title}](${r.url})\n   ${r.snippet}`.trimEnd()));
+    lines.push('', '_Sources linked hain — click karke poora page khul jayega._');
+    return lines.join('\n');
   }
 
   // ---- question-shaped concept queries get explained BEFORE any build ----

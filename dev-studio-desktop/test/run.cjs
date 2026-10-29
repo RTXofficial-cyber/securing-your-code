@@ -757,6 +757,124 @@ async function test(name, fn) {
     assert.ok(fs.existsSync(path.join(dir, 'index.html')));
   });
 
+  console.log('\nDeep agent (web research + build + check)');
+  const websearch = require('../shared/websearch.cjs');
+  const deep = require('../shared/deep.cjs');
+  const brainD = require('../shared/builtin.cjs');
+
+  const DDG_HTML = [
+    '<div class="result"><a rel="nofollow" class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnodejs.org%2Fen%2Fblog&rut=abc">Node.js &mdash; Latest Releases</a>',
+    '<a class="result__snippet" rel="nofollow" href="#">The latest <b>version</b> of Node.js ships weekly.</a></div>',
+    '<div class="result"><a rel="nofollow" class="result__a" href="https://example.com/two">Second &amp; result</a>',
+    '<a class="result__snippet" rel="nofollow" href="#">Another snippet here.</a></div>'
+  ].join('\n');
+  const WIKI_OPEN = JSON.stringify(['express', ['Express (web framework)'], ['Express is a back-end web framework for Node.js.'], ['https://en.wikipedia.org/wiki/Express_(web_framework)']]);
+  const WIKI_EXTRACT = JSON.stringify({ query: { pages: { '1': { extract: 'Express is a minimal and flexible Node.js web application framework.' } } } });
+
+  function mockFetch(map) {
+    return async (url) => {
+      for (const k of Object.keys(map)) {
+        if (String(url).includes(k)) return { ok: true, status: 200, text: async () => map[k] };
+      }
+      return { ok: false, status: 404, text: async () => '' };
+    };
+  }
+
+  await test('websearch parses DuckDuckGo and falls back to Wikipedia', async () => {
+    const ddg = await websearch.deepResearch('node latest version', { fetchImpl: mockFetch({ 'duckduckgo.com/html': DDG_HTML }) });
+    assert.equal(ddg.source, 'duckduckgo');
+    assert.equal(ddg.results.length, 2);
+    assert.equal(ddg.results[0].url, 'https://nodejs.org/en/blog'); // uddg redirect unwrapped
+    assert.match(ddg.results[0].title, /Node\.js — Latest Releases/); // entities decoded, tags stripped
+    assert.match(ddg.results[1].title, /Second & result/);
+    assert.match(ddg.results[0].snippet, /latest version of Node\.js/);
+    const wiki = await websearch.deepResearch('express framework', { fetchImpl: mockFetch({ 'action=opensearch': WIKI_OPEN, 'prop=extracts': WIKI_EXTRACT }) });
+    assert.equal(wiki.source, 'wikipedia');
+    assert.equal(wiki.results[0].url, 'https://en.wikipedia.org/wiki/Express_(web_framework)');
+    assert.match(wiki.summary, /minimal and flexible/);
+    const dead = await websearch.deepResearch('anything', { fetchImpl: mockFetch({}) });
+    assert.equal(dead.offline, true);
+    assert.equal(dead.results.length, 0);
+  });
+
+  await test('built-in brain answers "search X" with cited live results', async () => {
+    websearch.setFetch(mockFetch({ 'duckduckgo.com/html': DDG_HTML }));
+    try {
+      const r = await brainD.chat('x', [{ role: 'user', content: 'search node js latest version' }]);
+      assert.match(r, /live web se \(duckduckgo\)/);
+      assert.match(r, /\[Node\.js — Latest Releases\]\(https:\/\/nodejs\.org\/en\/blog\)/);
+      const offline = await websearch.deepResearch('x', { fetchImpl: mockFetch({}) });
+      assert.equal(offline.offline, true);
+    } finally { websearch.setFetch(null); }
+    websearch.setFetch(mockFetch({})); // no network at all
+    const honest = await brainD.chat('x', [{ role: 'user', content: 'search quantum news' }]);
+    assert.match(honest, /kuch nahi mila/);
+    websearch.setFetch(null);
+  });
+
+  await test('deep answer mode: research question gets a cited answer, no writes', async () => {
+    const dir = path.join(tmp, 'deepws');
+    fs.mkdirSync(dir, { recursive: true });
+    const r = await deep.deepRun({
+      goal: 'what is express in node.js?',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      chat: (pr, md, msgs) => brainD.chat(md, msgs),
+      fetchImpl: mockFetch({ 'action=opensearch': WIKI_OPEN, 'prop=extracts': WIKI_EXTRACT })
+    });
+    assert.equal(r.mode, 'answer');
+    assert.equal(r.ok, true);
+    assert.match(r.answer, /wikipedia\.org\/wiki\/Express/);
+    assert.match(r.answer, /minimal and flexible/);
+    assert.equal(r.mission, null);
+    assert.equal(r.checks.length, 0);
+    assert.equal(fs.readdirSync(dir).length, 0); // nothing was written
+  });
+
+  await test('deep build mode: research rides along, mission runs, checks prove files', async () => {
+    const dir = path.join(tmp, 'deepws2');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsB = makeWorkspaceHelpers({ value: dir });
+    brainD.setWorkspace(wsB);
+    const r = await deep.deepRun({
+      goal: 'research the latest css framework and build me a website',
+      ws: wsB,
+      permissions: { writeFiles: true, runCommands: true },
+      chat: (pr, md, msgs) => brainD.chat(md, msgs),
+      fetchImpl: mockFetch({ 'duckduckgo.com/html': DDG_HTML })
+    });
+    assert.equal(r.mode, 'build');
+    assert.ok(r.research && r.research.count >= 2, 'live sources were gathered first');
+    assert.equal(r.mission.ok, true, 'mission verified: ' + JSON.stringify(r.mission.iterations));
+    assert.ok(r.mission.files.length > 0);
+    assert.ok(fs.existsSync(path.join(dir, 'index.html')));
+    for (const c of r.checks) assert.equal(c.code, 0, 'check must pass: ' + c.cmd + ' ' + c.out);
+    assert.equal(r.ok, true);
+  });
+
+  await test('deep offline fallback answers honestly and gates permissions', async () => {
+    const dir = path.join(tmp, 'deepws3');
+    fs.mkdirSync(dir, { recursive: true });
+    const off = await deep.deepRun({
+      goal: 'what is recursion?',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      chat: (pr, md, msgs) => brainD.chat(md, msgs),
+      fetchImpl: mockFetch({}) // every source dead
+    });
+    assert.equal(off.mode, 'answer');
+    assert.match(off.answer, /built-in knowledge se/);
+    const gated = await deep.deepRun({
+      goal: 'build me a website',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      permissions: { writeFiles: false, runCommands: false },
+      chat: (pr, md, msgs) => brainD.chat(md, msgs),
+      fetchImpl: mockFetch({})
+    });
+    assert.equal(gated.mode, 'build');
+    assert.ok(gated.mission.iterations.some((it) => it.skipped && it.skipped.length > 0), 'skips must be visible');
+    assert.equal(gated.checks.length, 0, 'no runCommands -> no check commands');
+    assert.equal(fs.readdirSync(dir).length, 0, 'gated mission wrote nothing');
+  });
+
   console.log('\nApp lock & audit');
   const { LockManager } = require('../shared/lock.cjs');
 

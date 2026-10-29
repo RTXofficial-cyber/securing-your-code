@@ -235,6 +235,31 @@ Studio Agent (offline, no key) now behaves like a personal engineer:
   call siblings or use top-level state stay put, and an existing target
   file is never overwritten (pick another name instead).
 
+## Deep mode — the full agent: research → build → check
+
+A fourth chat pill, **Deep**, runs the whole loop in one message:
+
+1. **RESEARCH (Perplexity-style)** — goals that need the live web ("what is
+   the latest …?", "search X", anything ending in `?` that isn't a build
+   request) go through real web search: DuckDuckGo HTML first, Wikipedia
+   opensearch + intro extract as fallback. No API key, no account, no cost.
+   Pure questions come back as **cited answers** (numbered `[title](url)`
+   sources), and nothing is written to disk.
+2. **BUILD (Claude-style)** — build-shaped goals go through the Autopilot
+   mission loop. When research fits the goal ("research the latest css
+   framework and build me a website"), the live snippets are injected into
+   the planner prompt, so a connected frontier model plans with real,
+   current facts.
+3. **CHECK** — after the mission verifies, every written `.js`/`.cjs`/`.py`
+   file gets a final syntax check (`node --check` / `py_compile`); a mission
+   is only reported ✓ when checks pass too.
+
+Offline is honest: if the web is unreachable, Deep says so and falls back to
+the built-in brain's knowledge — it never pretends to have searched.
+`web:search` is read-only (guest bridge links may use it); `deep:run` is
+audited and gated by the same writeFiles/runCommands permissions as
+everything else.
+
 ## Autopilot — autonomous plan → execute → verify → fix
 
 Flip the chat to **Auto** and give it a goal: *"add a login page with
