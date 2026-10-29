@@ -327,6 +327,243 @@ function reviewOffline() {
 
 
 /* ------------------------------------------------------------------ */
+/* Conversational brain — every question gets its OWN answer           */
+/* ------------------------------------------------------------------ */
+
+const STOP = new Set(['what','why','how','when','where','who','which','the','and','for','with','from','about','into','your','you','can','could','should','would','this','that','these','those','there','here','have','has','had','are','was','were','is','am','be','been','being','do','does','did','not','no','yes','please','tell','me','my','our','their','its','it','of','in','on','at','to','a','an','or','if','then','than','so','such','very','just','really','simply','explain','describe','give','show','make','create','build','write','using','use','need','want','like','know','mean','means','difference','between','best','way','ways','some','any','all','each','every','most','more','less']);
+
+function norm(t) { return String(t || '').toLowerCase().replace(/\s+/g, ' ').trim(); }
+
+function isQuestion(t) {
+  return /\?/.test(t) || /^(what|why|how|when|where|who|which|can you|could you|explain|tell me|batao|bata|kya|kaise|kyun|kyon|kaun|kab|kitna|ajay|aja)/.test(norm(t));
+}
+
+function keywords(t) {
+  return (norm(t).match(/[a-z0-9][a-z0-9_-]{3,}/g) || []).filter((w) => !STOP.has(w)).slice(0, 6);
+}
+
+/** Safe arithmetic: only digits and operators survive the filter. */
+function mathAnswer(t) {
+  const raw = norm(t).replace(/^(what is|calculate|compute|solve|kitna hota hai|kitna hai)\s*/, '').replace(/\?+$/, '');
+  const expr = raw.replace(/[^0-9+\-*/().%^ ]/g, '').replace(/\^/g, '**').trim();
+  if (!expr || expr.length > 60 || !/[0-9]/.test(expr) || !/[+\-*/%]/.test(expr)) return null;
+  try {
+    const v = Function('"use strict";return (' + expr + ')')();
+    if (typeof v === 'number' && Number.isFinite(v)) {
+      return `**${expr.replace(/\s+/g, ' ')} = ${v}**\n\nCalculated locally by the offline engine — parentheses, \`%\` and \`^\` (power) all work, e.g. \`(2+3)*4%7\` or \`2^10\`.`;
+    }
+  } catch {}
+  return null;
+}
+
+const KB = [
+  { m: /recurse|recursion|factorial using itself/, t: 'Recursion', b: [
+    'A function that calls itself, with a **base case** that stops it.',
+    '```js\nfunction fact(n){ return n <= 1 ? 1 : n * fact(n - 1); }\n```',
+    'Every recursive call must move toward the base case, or the stack overflows.',
+    'Rule of thumb: recursion shines on trees/lists (file systems, JSON, DOM); plain loops are faster for flat arrays.' ] },
+  { m: /center|flexbox|flex box|\bgrid\b|layout css/, t: 'Centering & layout in CSS', b: [
+    'Modern answer: flexbox.',
+    '```css\n.parent { display: flex; align-items: center; justify-content: center; }\n```',
+    'For page grids use `display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));`',
+    'Pitfall: the parent needs a height (`min-height: 100vh`) or vertical centering looks like nothing happened.' ] },
+  { m: /async|await|promise|callback|concurrent/, t: 'Async / promises / await', b: [
+    '`async fn` always returns a Promise; `await` pauses *that function*, not the program.',
+    '```js\nconst r = await fetch(url); const j = await r.json();\n```',
+    'Run independent work in parallel: `const [a, b] = await Promise.all([fa(), fb()]);`',
+    'Always handle rejection: `try/catch` around await, or `.catch()` on the chain.' ] },
+  { m: /\bapi\b|rest|endpoint|http status|json server/, t: 'APIs & REST', b: [
+    'REST = resources as URLs + verbs as HTTP methods: GET read, POST create, PUT/PATCH update, DELETE remove.',
+    'Return JSON with the right status: 200 ok, 201 created, 400 bad input, 404 not found, 500 server fault.',
+    'Zero-dep Node server: `http.createServer((req,res)=>{ res.setHeader("Content-Type","application/json"); res.end(JSON.stringify({ok:true})); })`.',
+    'Version your API from day one: `/api/v1/...` — changing URLs later breaks every client.' ] },
+  { m: /\bgit\b|commit|branch|merge|pull request|rebase/, t: 'Git basics', b: [
+    'Workflow: `git add <files>` → `git commit -m "why, not what"` → `git push`.',
+    'Branch per feature: `git switch -c feature/x`; merge with `git merge feature/x`.',
+    'Undo safely: `git restore <file>` (discard edits), `git revert <sha>` (undo a commit publicly).',
+    'Never commit secrets — put keys in `.env` and add it to `.gitignore`.' ] },
+  { m: /sql|join|database query|select \*/, t: 'SQL & joins', b: [
+    '`SELECT cols FROM a JOIN b ON a.id = b.a_id WHERE ... ORDER BY ... LIMIT n;`',
+    'INNER = only matches; LEFT = all of the left table even without matches; avoid cartesian products (missing ON).',
+    'Index the columns you filter/join on; `EXPLAIN` shows whether the index is used.',
+    'Use parameters (`?` / `$1`) — never string-concatenate user input into SQL.' ] },
+  { m: /regex|regular expression|pattern match/, t: 'Regular expressions', b: [
+    'Anchors: `^` start, `$` end. Classes: `\\d` digit, `\\w` word, `[a-z]` set. Quantifiers: `+` 1+, `*` 0+, `{2,4}`.',
+    '```js\nconst ok = /^[^@\\s]+@[^@\\s]+\\.[a-z]{2,}$/i.test(email);\n```',
+    'Groups capture: `(\\d+)-(\\d+)`; non-capturing `(?:...)` when you only need grouping.',
+    'Test at regex103-style tables in your head: greedy `.*` over-matches — prefer `[^"]*` style negated classes.' ] },
+  { m: /big ?o|complexity|algorithm|time complexity|binary search|sorting/, t: 'Algorithms & Big-O', b: [
+    'O(1) index/hash · O(log n) binary search · O(n) scan · O(n log n) good sorts · O(n²) nested loops.',
+    'Binary search needs a **sorted** array: halve the range each step.',
+    'Prefer a Map/Set for "have I seen this?" — turns O(n²) loops into O(n).',
+    'Measure before optimising; cache the expensive call, not the cheap one.' ] },
+  { m: /xss|injection|security|hash|password stor|sanitiz|vulnerab/, t: 'Security fundamentals', b: [
+    'Never trust input: validate on the server, escape on output (`textContent`, not `innerHTML`).',
+    'SQL: parameterised queries only. Shell: argument arrays, never string-built commands.',
+    'Passwords: scrypt/bcrypt/argon2 with a per-user salt — never MD5/SHA1, never plaintext.',
+    'Least privilege: the UI should not hold keys; tokens expire; log every sensitive action (this app does).' ] },
+  { m: /react|component|useState|jsx|front ?end framework/, t: 'React in one breath', b: [
+    'UI = f(state). Components are functions returning JSX; props flow down, events flow up.',
+    '```jsx\nconst [n, setN] = useState(0);\nreturn <button onClick={() => setN(n + 1)}>{n}</button>;\n```',
+    'Effects (`useEffect`) sync with the outside world; keep them rare and clean up listeners.',
+    'Keys on lists must be stable ids — never the array index if rows can reorder.' ] },
+  { m: /node|npm|express|server side javascript/, t: 'Node.js', b: [
+    'Node = V8 + event loop: one thread, non-blocking I/O via callbacks/promises.',
+    '`npm ci` for reproducible installs (uses the lockfile); `npm i pkg` to add deps.',
+    'Built-ins cover a lot: `http`, `fs`, `path`, `crypto` — many tools need zero packages.',
+    'Exit codes matter: `process.exitCode = 1` on failure so scripts/CI can react.' ] },
+  { m: /python|pip|list comprehension|pythonic/, t: 'Python essentials', b: [
+    'Indentation is syntax; names are references, `=` never copies.',
+    '```py\nsquares = [n * n for n in nums if n % 2 == 0]\n```',
+    'Use `with open(...) as f:` so files always close; `pathlib` over string paths.',
+    'Virtualenv per project (`python -m venv .venv`) so dependencies never collide.' ] },
+  { m: /unit test|testing|jest|vitest|assert|tdd/, t: 'Testing', b: [
+    'Test behaviour, not implementation: input → expected output, plus one failure path.',
+    'Name tests as sentences: `rejects a PIN shorter than 4 chars`.',
+    'Arrange → Act → Assert; one assertion group per case; no sleeps, no shared state.',
+    'A bug fixed without a regression test is a bug that will return.' ] },
+  { m: /typescript|\bts\b|types|interface|generic/, t: 'TypeScript', b: [
+    'Types are compile-time documentation the compiler enforces.',
+    '```ts\ninterface User { id: string; name: string; admin?: boolean }\n```',
+    'Prefer `unknown` + narrowing over `any`; `any` turns the compiler off.',
+    'Generics = functions over shapes: `function first<T>(xs: T[]): T | undefined`.' ] },
+  { m: /docker|container|image|kubernetes/, t: 'Docker', b: [
+    'Image = recipe (Dockerfile); container = running instance.',
+    'Small images: `FROM node:20-alpine`, copy `package*.json` first, then `npm ci --omit=dev`.',
+    'One process per container; logs to stdout; secrets via env/secret stores, never baked in.',
+    '`.dockerignore` node_modules and dist, or every build re-copies gigabytes.' ] },
+  { m: /localhost|port|cors|127\.0\.0\.1/, t: 'localhost, ports & CORS', b: [
+    '`localhost`/`127.0.0.1` = this machine only; `0.0.0.0` = every network interface (exposes you).',
+    'One port per service; "EADDRINUSE" means something already holds it — pick another or kill it.',
+    'CORS is enforced by *browsers*: a server must send `Access-Control-Allow-Origin` for cross-origin XHR/fetch.',
+    'For dev servers behind proxies, allow the preview host explicitly instead of `*`.' ] },
+  { m: /json|parse|stringify|serializ/, t: 'JSON', b: [
+    'Text format: objects, arrays, strings ("double quotes"), numbers, true/false/null.',
+    '```js\nconst o = JSON.parse(text);   const text2 = JSON.stringify(o, null, 2);\n```',
+    '`JSON.parse` throws on bad input — wrap it; `undefined` and functions silently vanish on stringify.',
+    'Dates become strings: store ISO (`new Date().toISOString()`) and parse back explicitly.' ] },
+  { m: /array|map\(|filter|reduce|loop|iterate/, t: 'Arrays: map / filter / reduce', b: [
+    '`map` transforms every item; `filter` keeps matches; `reduce` folds to one value.',
+    '```js\nconst total = items.filter(i => i.paid).reduce((s, i) => s + i.price, 0);\n```',
+    'They return new arrays — the original is untouched (immutability avoids whole bug classes).',
+    'Need to stop early? A plain `for...of` loop beats map/filter chains.' ] },
+  { m: /error|exception|try catch|crash|debug/, t: 'Errors & debugging', b: [
+    'Wrap risky I/O in `try/catch`; rethrow with context instead of swallowing silently.',
+    'Read the stack bottom-up: the first frame is where it threw, the last is what called it.',
+    'Reproduce → isolate (delete half the code) → fix → regression-test. Binary-search the cause.',
+    'Log with levels and context (`user id`, `input size`); `console.log` in prod is a smell.' ] },
+  { m: /function|method|closure|scope|arrow function|pure function/, t: 'Functions & scope', b: [
+    'A function = named, reusable behaviour: inputs (params) in, one value out.',
+    '```js\nconst add = (a, b) => a + b;   // arrow, expression body\n```',
+    'Scope: inner code sees outer variables, never the reverse; `let/const` are block-scoped.',
+    'Closures = a function remembering the scope it was born in — the basis of private state.',
+    'Pure functions (same in → same out, no side effects) are the easiest code to test and reuse.' ] },
+  { m: /variable|data type|string|number|boolean|const|let/, t: 'Variables & types', b: [
+    '`const` by default, `let` when it must change; `var` is legacy — skip it.',
+    'Primitives: string, number, boolean, null, undefined, bigint, symbol. Everything else is an object.',
+    '`===` compares value+type; `==` coerces and surprises you. Use `===`.',
+    'Strings are immutable: every "change" returns a new string.' ] }
+];
+
+function kbAnswer(t) {
+  const n = norm(t);
+  for (const topic of KB) if (topic.m.test(n)) {
+    return [`**${topic.t}** — offline crash course:`, ...topic.b.map((x) => `- ${x}`)].join('\n');
+  }
+  return null;
+}
+
+function greetAnswer(t) {
+  const n = norm(t);
+  if (n.length > 48) return null;
+  if (!/^(hi|hello|hey|salam|assalam|aoa|good (morning|afternoon|evening)|yo|salaam)\b/.test(n)) return null;
+  return [
+    'Salam! Main **Dev Studio** ka built-in offline AI hoon — no internet, no API key.',
+    'Main poore projects likhta hoon aur khud chala kar verify karta hoon: website, API, CLI, game, todo app, scripts.',
+    'Aap pooch bhi sakte hain — recursion, git, SQL, CSS, security, testing — main offline samjha dunga.',
+    'Boliye: aaj kya banana hai?'
+  ].join('\n');
+}
+
+function identityAnswer(t) {
+  const n = norm(t);
+  if (!/(who are you|what are you|your name|about you|kaun ho|tum kaun|tum kon|what can you do|your capabilities|help me|commands|how do i use you)/.test(n)) return null;
+  return [
+    'Main **Studio Agent v2** hoon — Dev Studio ka built-in **offline** engine.',
+    '',
+    '**Kya kya kar sakta hoon:**',
+    '- Poore projects likhna + verify karna: `build me a website`, `create an api`, `make a python server`, `write a cli tool`, `make a game`, `make a todo app`',
+    '- Concepts samjhana: recursion, async, git, SQL, regex, CSS layout, security, testing, Big-O, Docker, React, Node, Python…',
+    '- Math: `what is (2+3)*4%7?`',
+    '- Workspace dekhna: `list my files` · environment: `run environment check`',
+    '',
+    '**Limit:** web search nahi hai. Gehri research/essay ke liye Settings → Providers mein koi frontier model (Claude, ChatGPT, Gemini…) connect karein — actions aur terminal phir bhi main hi chalaunga.'
+  ].join('\n');
+}
+
+function thanksAnswer(t) {
+  if (!/(thank|thanks|shukriya|thx|great job|well done|acha kia)/.test(norm(t))) return null;
+  return 'You\'re welcome! Agla kadam bataiye — koi nayi file, koi fix, ya koi concept samajhna ho to main tayyar hoon.';
+}
+
+function timeAnswer(t) {
+  const n = norm(t);
+  if (!/(what.*time|time now|current time|today.*date|date today|aaj ka din|aaj ki tarikh|what day)/.test(n)) return null;
+  const d = new Date();
+  return `Abhi: **${d.toLocaleString()}** (aapke PC ki clock). UTC: ${d.toISOString()}.`;
+}
+
+function appUsageAnswer(t) {
+  const n = norm(t);
+  if (!/(how do i (use|run|open|install)|kaise (chalaye|chalaun|use)|where is|how to use|tutorial|guide)/.test(n)) return null;
+  return [
+    '**Dev Studio quick tour:**',
+    '1. **Workspace** — status bar par folder naam click karein; saara code wahin banta hai.',
+    '2. **Explorer (left)** — files; click = editor mein khulti hai. Panels activity bar se slide hote hain.',
+    '3. **Terminal (bottom)** — asli shell; AI ke commands yahan chalte hain.',
+    '4. **AI (right)** — Solo = ek model, Team = 4 roles mil ke; pipeline har step dikhata hai.',
+    '5. **Settings** — providers/keys, permissions (AI ko write/run ki ijazat), plugins, security (PIN + audit).',
+    '6. **✎ Memory** — project summary/conventions/tasks; har run mein AI ko yaad rehta hai.',
+    '7. **◎ Open in Chrome** — wahi workspace browser mein (127.0.0.1, token-gated).',
+    '',
+    'Try: `build me a website` phir Explorer mein files dekhein.'
+  ].join('\n');
+}
+
+function modifyAnswer(t) {
+  const n = norm(t);
+  if (!/(add|change|update|improve|modify|rename|remove|delete|fix|dark|theme|color|style|more sections|responsive)/.test(n)) return null;
+  const kws = keywords(n).slice(0, 4).join(', ') || 'feature';
+  return [
+    `Samajh gaya — aap मौजूदा project mein **${kws}** wali tabdeeli chahte hain.`,
+    '',
+    'Offline engine files ko directly nahi kholta, lekin do raaste hain:',
+    `1. **Mujhe exact kaam boliye** — "rewrite index.html with a dark theme and a contact form" — main poori nayi file likh kar verify kar dunga.`,
+    `2. **Khud edit karein** — Explorer mein file kholiye (Monaco editor), badliye, ` + '`Ctrl+S`' + '; terminal mein re-verify karein.',
+    '',
+    `Abhi bataiye: kaunsi file, kya change? (jaise: "styles.css mein dark theme add karo")`
+  ].join('\n');
+}
+
+/** Last resort — but NEVER the same text twice: it quotes the question back. */
+function openAnswer(question, text) {
+  const kws = keywords(text);
+  const subject = kws.slice(0, 3).join(' + ') || 'aapka topic';
+  return [
+    `Aapka sawal note kiya: *"${question.trim()}"*`,
+    '',
+    `Mere offline knowledge base mein **${subject}** par tayaar crash-course nahi hai, aur web search meri salahiyat se bahar hai — lekin main bekaar baithta nahi:`,
+    '',
+    `1. **Plan** — ${subject} ke liye file structure, steps aur pitfalls main abhi likh sakta hoon.`,
+    '2. **Build** — chahiye website, API, CLI, script ya game? Main likh kar *chala ke* dikha dunga.',
+    '3. **Verify** — har run ke baad terminal output se sabit karta hoon ke kaam hua.',
+    '',
+    'Sabse tez raasta: output ki shakal bata dijiye ("is par ek CLI bana do", "demo website chahiye") — main turant shuru.',
+    'Aur agar asal mein gehra jawab chahiye: Settings → Providers mein koi frontier model connect karein; workspace, terminal aur actions tab bhi main hi sambhalunga.'
+  ].join('\n');
+}
+
+/* ------------------------------------------------------------------ */
 /* Intent routing                                                      */
 /* ------------------------------------------------------------------ */
 
@@ -339,6 +576,27 @@ async function chat(model, messages) {
   if (role === 'plan') return planOffline(text);
   if (role === 'review') return reviewOffline();
 
+  // ---- conversation first: greetings, identity, math, time, concepts ----
+  const greet = greetAnswer(text);
+  if (greet) return greet;
+  const ident = identityAnswer(text);
+  if (ident) return ident;
+  const thanks = thanksAnswer(text);
+  if (thanks) return thanks;
+  const clock = timeAnswer(text);
+  if (clock) return clock;
+  const math = mathAnswer(text);
+  if (math) return math;
+  const usage = appUsageAnswer(text);
+  if (usage) return usage;
+
+  // ---- question-shaped concept queries get explained BEFORE any build ----
+  if (isQuestion(text) && !/(write|make|build|create|generate|scaffold)/.test(text)) {
+    const kb = kbAnswer(text);
+    if (kb) return kb;
+  }
+
+  // ---- known build intents ----
   if (/(static site|website|landing|web ?page|portfolio|homepage)/.test(text)) {
     return [
       'Plan: (1) scaffold a dependency-free static site, (2) syntax-check the JS, (3) list what landed.',
@@ -416,6 +674,19 @@ async function chat(model, messages) {
     ].join('\n\n');
   }
 
+  // ---- concepts crash-course (question-shaped or "explain ...") ----
+  if (isQuestion(text) || /explain|samjhao|define|meaning of/.test(text)) {
+    const kb = kbAnswer(text);
+    if (kb) return kb;
+  }
+
+  // ---- "change/add/fix something" in an existing project ----
+  const mod = modifyAnswer(text);
+  if (mod) return mod;
+
+  // ---- anything else: a question-aware answer, never a canned intro ----
+  if (text.trim()) return openAnswer(lastUser(messages), text);
+
   return [
     "I'm **Studio Agent v2**, Dev Studio's built-in offline engine. I plan, write whole projects, and verify them by compiling or running — no internet, no API key.",
     '',
@@ -426,9 +697,8 @@ async function chat(model, messages) {
     '- *"write a cli tool"* → CLI with flags, then I run it',
     '- *"make a game"* / *"make a todo app"* → single-file browser apps',
     '',
-    'For open-ended work, connect a frontier model in **Settings** (Claude, ChatGPT, Perplexity, Gemini, Groq) — those need internet and an API key; I do not.',
-    '',
-    'You can also replace me with **your own AI**: one function in `shared/builtin.cjs`.'
+    'You can also ask me concepts (recursion, git, SQL, CSS, security…) or math.',
+    'For open-ended research, connect a frontier model in **Settings** (Claude, ChatGPT, Perplexity, Gemini, Groq).'
   ].join('\n');
 }
 

@@ -406,6 +406,48 @@ async function test(name, fn) {
     pm2.setEnabled('ollama', true);
   });
 
+  console.log('\nStudio Agent v2 conversation');
+
+  await test('builtin answers each question differently (no canned intro)', async () => {
+    const ask = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
+
+    const hi = await ask('hello');
+    assert.match(hi, /Dev Studio/i);
+    assert.ok(!hi.includes('Try any of these'), 'greeting must not dump the intro');
+
+    const who = await ask('who are you?');
+    assert.match(who, /offline/i);
+    assert.match(who, /Studio Agent v2/);
+
+    const rec = await ask('what is recursion?');
+    assert.match(rec, /Recursion/);
+    assert.match(rec, /base case/i);
+
+    const css = await ask('how do i center a div with css?');
+    assert.match(css, /flex/i);
+
+    const fn = await ask('what is a closure in javascript?');
+    assert.match(fn, /closure/i);
+
+    const math = await ask('what is 2+2*10?');
+    assert.match(math, /= 22/);
+
+    const thanks = await ask('thank you!');
+    assert.match(thanks, /welcome/i);
+
+    const q1 = await ask('explain blockchain consensus simply');
+    const q2 = await ask('why is the sky blue at noon?');
+    assert.notStrictEqual(q1, q2, 'two questions must not get identical replies');
+    assert.ok(q1.includes('blockchain'), 'fallback quotes the question keywords');
+    assert.ok(q2.includes('sky'), 'fallback quotes the question keywords');
+    assert.ok(!q1.includes("I'm **Studio Agent v2**, Dev Studio's built-in offline engine. I plan"), 'fallback is not the intro');
+
+    // build-shaped questions still scaffold real files
+    const build = await ask('can you write a cli tool for me?');
+    const acts = agent.parseActions(build);
+    assert.ok(acts.some((a) => a.type === 'write_file'), 'build-shaped question still builds');
+  });
+
   console.log('\nApp lock & audit');
   const { LockManager } = require('../shared/lock.cjs');
 
