@@ -484,11 +484,20 @@ different games, not five reskins:
 
 | You ask for | Control | Enemies | Goal | World | Mood |
 |---|---|---|---|---|---|
-| "resident evil style horror" | FPS walk + look | zombies | escape the mansion | mansion | dark fog, rain |
+| "resident evil style horror" | FPS walk + look | zombies **+ dogs**, and a **Tyrant boss** | find 3 crests, escape the **sealed gate** | mansion | dark fog |
 | "spider-man swinging game" | web-swing (Space anchors a rope you pump) | stalkers | collect 12 tokens | open city | bright day |
 | "choo-choo charles train" | lane-switching train (A/D), throttle | **the Hunter** chases on rails | collect 15 cargo, outrun it | 4 km rails | dark + rain |
 | "gta 5 open world" | drivable car, camera follows heading | police pursuit | 3 timed deliveries | open city | bright day |
 | "call of duty shooter" | FPS walk + look | soldiers that shoot back | escalating waves | arena | bright day |
+
+**Survival-horror detail pack (1.12.0):** the escape path now carries the
+details that define the genre — three **crests** hidden through the mansion
+(the exit gate stays **sealed and dark** until all three are found), scarce
+**green herbs** (+30 HP) and **ammo boxes** (full magazine, reload cancelled),
+**zombie dogs** mixed into the horde, and the moment the third crest is
+picked up a **Tyrant-class boss** (10 HP, 30 damage, slower than your sprint
+but relentless) wakes up and hunts you to the gate — your heartbeat thumps
+faster the closer it gets.
 
 The systems are real: hitscan weapon with a 21° targeting cone, 12-round mag
 and reload, per-enemy HP/damage/speed tables, rope physics, a hunter that

@@ -101,14 +101,18 @@ g.start({
     g.lookPrev = null;
 
     /* ---- goal state ---- */
-    g.goal = { wave: 1, kills: 0, collected: 0, delivered: 0, timer: 0, phase: 'go' };
+    g.goal = { wave: 1, kills: 0, collected: 0, delivered: 0, crests: 0, timer: 0, phase: 'go' };
     g.items = []; g.marker = null; g.dropoff = null;
+    g.crests = []; g.pickups = []; g.boss = null; g.heartT = 0;
     if (SPEC.goal === 'collect') {
       for (let i = 0; i < (g.rails ? 15 : 12); i += 1) g.items.push(this.spawnPoint(g, true));
     } else if (SPEC.goal === 'escape') {
-      const S = WS0;
       g.marker = { x: g.rand(40, 120), z: g.rand(40, 120) }; // far corner from centre spawn
       g.goal.dist = Math.hypot(g.marker.x - g.P3.x, g.marker.z - g.P3.z);
+      /* survival-horror detail: 3 crests unseal the gate, supplies are scarce */
+      for (let i = 0; i < 3; i += 1) g.crests.push(this.openPoint(g, true));
+      for (let i = 0; i < 5; i += 1) g.pickups.push({ ...this.openPoint(g, false), kind: 'herb' });
+      for (let i = 0; i < 4; i += 1) g.pickups.push({ ...this.openPoint(g, false), kind: 'ammo' });
     } else if (SPEC.goal === 'deliver') {
       g.marker = this.spawnPoint(g, true);
     }
@@ -140,11 +144,34 @@ g.start({
     for (let i = 0; i < n; i += 1) this.spawnFoe(g);
   },
 
+  openPoint(g, away) {
+    // spawnPoint can land inside a building — sample until the spot is open
+    for (let t = 0; t < 40; t += 1) {
+      const p = this.spawnPoint(g, away);
+      let ok = true;
+      for (const b of g.solids) {
+        if (p.x > b.x0 - 16 && p.x < b.x0 + b.w + 16 && p.z > b.z0 - 16 && p.z < b.z0 + b.d + 16) { ok = false; break; }
+      }
+      if (ok) return p;
+    }
+    return this.spawnPoint(g, away);
+  },
+
+  spawnBoss(g) {
+    const p = this.openPoint(g, true);
+    g.boss = { x: p.x, z: p.z, hp: 10, spd: 58, dmg: 30, h: 40, w: 18, base: 1.0, kind: 'boss', t: 0, fireT: 0 };
+    g.foes.push(g.boss);
+    g.shake(14);
+    g.audio.noise(0.55, 0.35, 110); // something enormous wakes up
+  },
+
   spawnFoe(g) {
     const p = this.spawnPoint(g, true);
-    const kind = SPEC.enemy;
+    let kind = SPEC.enemy;
+    if (SPEC.goal === 'escape' && kind === 'zombie' && g.rand(0, 1) < 0.3) kind = 'dog'; // zombie dogs mix the horde
     const stats = {
       zombie: { hp: 2, spd: g.rand(30, 50), dmg: 12, h: 20, w: 9, base: 0.34 },
+      dog: { hp: 1, spd: g.rand(78, 96), dmg: 9, h: 10, w: 16, base: 0.5 },
       soldier: { hp: 2, spd: g.rand(72, 95), dmg: 8, h: 20, w: 9, base: 0.72 },
       stalker: { hp: 3, spd: g.rand(112, 140), dmg: 18, h: 26, w: 13, base: 0.92 },
       police: { hp: 3, spd: g.rand(95, 120), dmg: 14, h: 14, w: 20, base: 0.85 }
@@ -207,7 +234,10 @@ g.start({
         if (best.hp <= 0 && i >= 0) {
           g.foes.splice(i, 1);
           g.goal.kills += 1;
-          g.addScore(best.kind === 'stalker' ? 40 : 25);
+          if (best.kind === 'boss') {
+            g.boss = null; g.addScore(500);
+            g.P3.msg = 'THE TYRANT FALLS +$500'; g.P3.msgT = 3;
+          } else g.addScore(best.kind === 'stalker' ? 40 : best.kind === 'dog' ? 15 : 25);
           g.audio.noise(0.14, 0.2, 1200);
         }
       }
@@ -347,7 +377,10 @@ g.start({
           f.fireT -= dt;
           if (f.fireT <= 0) { f.fireT = 1.15; this.hurt(g, 6, 'UNDER FIRE'); }
         }
-        if (d < (f.kind === 'police' ? 34 : 22)) this.hurt(g, f.dmg, f.kind === 'zombie' ? 'A ZOMBIE TEARS AT YOU' : f.kind === 'stalker' ? 'THE STALKER STRIKES' : f.kind === 'police' ? 'BUSTED BY THE COPS' : 'ENEMY CONTACT');
+        if (d < (f.kind === 'police' ? 34 : f.kind === 'boss' ? 30 : 22)) {
+          const why = f.kind === 'zombie' ? 'A ZOMBIE TEARS AT YOU' : f.kind === 'dog' ? 'A DOG LUNGES AT YOU' : f.kind === 'boss' ? 'THE TYRANT SWIPES' : f.kind === 'stalker' ? 'THE STALKER STRIKES' : f.kind === 'police' ? 'BUSTED BY THE COPS' : 'ENEMY CONTACT';
+          this.hurt(g, f.dmg, why);
+        }
       }
       // waves goal: clear the wave to advance
       if (SPEC.goal === 'waves' && g.foes.length === 0) {
@@ -377,9 +410,47 @@ g.start({
         }
       }
     } else if (SPEC.goal === 'escape' && g.marker) {
+      /* crests: the gate stays sealed until all three are found */
+      for (let i = g.crests.length - 1; i >= 0; i -= 1) {
+        const cr = g.crests[i];
+        if (g.dist(cr.x, cr.z, P.x, P.z) < 26) {
+          g.crests.splice(i, 1);
+          g.goal.crests += 1; g.addScore(80);
+          g.audio.chord([659, 784, 988], 0.16, 'triangle', 0.12);
+          g.burst(g.width / 2, g.height * 0.55, 18, '#ffffff', 300);
+          if (g.goal.crests >= 3) {
+            this.spawnBoss(g);
+            P.msg = 'THE GATE IS UNSEALED — and something enormous just woke up'; P.msgT = 3.4;
+          } else {
+            P.msg = `CREST ${g.goal.crests}/3 (+$80) — the gate needs all three`; P.msgT = 2.2;
+          }
+        }
+      }
+      /* scarce supplies: herbs bind wounds, ammo boxes refill the magazine */
+      for (let i = g.pickups.length - 1; i >= 0; i -= 1) {
+        const pk = g.pickups[i];
+        if (g.dist(pk.x, pk.z, P.x, P.z) < 22) {
+          g.pickups.splice(i, 1);
+          if (pk.kind === 'herb') { P.hp = Math.min(100, P.hp + 30); P.msg = 'GREEN HERB — wounds bound (+30 HP)'; }
+          else { P.ammo = 12; P.reload = 0; P.msg = 'AMMO BOX — magazine refilled'; }
+          g.addScore(10); P.msgT = 1.8;
+          g.audio.chord([523, 659], 0.1, 'triangle', 0.09);
+        }
+      }
       const d = g.dist(g.marker.x, g.marker.z, P.x, P.z);
-      if (d < 34) { g.addScore(700); g.gameOver('YOU ESCAPED THE DARK'); return; }
-      if (Math.floor(g.time * 2) % 2 === 0 && P.msgT <= 0) { P.msg = `EXIT ${Math.round(d)}m — run`; P.msgT = 0.4; }
+      if (d < 34) {
+        if (g.goal.crests >= 3) { g.addScore(700); g.gameOver('YOU ESCAPED THE DARK — the gate slams behind you'); return; }
+        if (P.msgT <= 0) {
+          P.msg = `THE GATE IS SEALED — ${3 - g.goal.crests} CREST${3 - g.goal.crests === 1 ? '' : 'S'} MISSING`; P.msgT = 1.2;
+          g.audio.beep(140, 0.15, 'sawtooth', 0.09, -40);
+        }
+      } else if (Math.floor(g.time * 2) % 2 === 0 && P.msgT <= 0) { P.msg = `EXIT ${Math.round(d)}m — run`; P.msgT = 0.4; }
+      /* heartbeat when the tyrant is near */
+      if (g.boss && g.foes.indexOf(g.boss) >= 0) {
+        g.heartT -= dt;
+        const bd = g.dist(g.boss.x, g.boss.z, P.x, P.z);
+        if (bd < 260 && g.heartT <= 0) { g.heartT = bd < 120 ? 0.45 : 0.9; g.audio.beep(70, 0.07, 'sine', 0.12); }
+      }
     } else if (SPEC.goal === 'deliver') {
       const M = g.goal;
       if (M.phase === 'go' && g.marker) {
@@ -449,10 +520,21 @@ g.start({
       const bob = 16 + Math.sin(g.time * 3 + it.x) * 3;
       for (const f of K3.boxFaces(it.x - 6, bob, it.z - 6, 12, 12, 12, 0.98)) faces.push(K3.rotateFaceY(f, it.x, it.z, g.time * 2));
     }
+    for (const cr of g.crests) { // key items: spinning bright shards
+      if (!near(cr.x, cr.z, 620)) continue;
+      const bob = 14 + Math.sin(g.time * 2.4 + cr.z) * 3;
+      for (const f of K3.boxFaces(cr.x - 5, bob, cr.z - 5, 10, 16, 10, 1.0)) faces.push(K3.rotateFaceY(f, cr.x, cr.z, g.time * 3));
+    }
+    for (const pk of g.pickups) { // herbs (small) and ammo boxes (flat)
+      if (!near(pk.x, pk.z, 520)) continue;
+      if (pk.kind === 'herb') faces.push(...K3.boxFaces(pk.x - 4, 2, pk.z - 4, 8, 8, 8, 0.55));
+      else faces.push(...K3.boxFaces(pk.x - 5, 2, pk.z - 5, 10, 7, 10, 0.8));
+    }
     const mark = SPEC.goal === 'deliver' && g.goal.phase === 'drop' ? g.dropoff : g.marker;
     if (mark) {
       if (near(mark.x, mark.z, 1400)) {
-        faces.push(...K3.boxFaces(mark.x - 7, 0, mark.z - 7, 14, 74 + Math.sin(g.time * 4) * 5, 14, 0.95));
+        const sealed = SPEC.goal === 'escape' && g.goal.crests < 3; // a sealed gate barely reflects light
+        faces.push(...K3.boxFaces(mark.x - 7, 0, mark.z - 7, 14, 74 + Math.sin(g.time * 4) * 5, 14, sealed ? 0.32 : 0.95));
       }
     }
 
@@ -461,6 +543,7 @@ g.start({
       if (!near(f.x, f.z, 700)) continue;
       const bob = f.kind === 'zombie' ? Math.sin(f.t * 6) * 1.4 : 0;
       if (f.kind === 'police') faces.push(...K3.boxFaces(f.x - f.w / 2, 1, f.z - f.w / 2, f.w, f.h, f.w * 1.9, f.base));
+      else if (f.kind === 'dog') faces.push(...K3.boxFaces(f.x - f.w / 2, 1 + Math.abs(Math.sin(f.t * 9)) * 2, f.z - f.w * 0.8, f.w, f.h, f.w * 1.6, f.base));
       else faces.push(...K3.boxFaces(f.x - f.w / 2, bob, f.z - f.w / 2, f.w, f.h, f.w, f.base));
     }
     if (g.hunter) { // the rail stalker: a big weaving horror behind the train
@@ -514,7 +597,7 @@ g.start({
     let goalText = '';
     if (SPEC.goal === 'waves') goalText = `WAVE ${g.goal.wave} · FOES ${g.foes.length} · KILLS ${g.goal.kills}`;
     if (SPEC.goal === 'collect') goalText = g.rails ? `SCRAP ${g.goal.collected}/15` : `CARGO ${g.goal.collected}/12`;
-    if (SPEC.goal === 'escape' && g.marker) goalText = `EXIT ${Math.round(g.dist(g.marker.x, g.marker.z, P.x, P.z))}m`;
+    if (SPEC.goal === 'escape' && g.marker) goalText = g.goal.crests >= 3 ? `GATE OPEN — RUN ${Math.round(g.dist(g.marker.x, g.marker.z, P.x, P.z))}m` : `CRESTS ${g.goal.crests}/3 · EXIT ${Math.round(g.dist(g.marker.x, g.marker.z, P.x, P.z))}m`;
     if (SPEC.goal === 'deliver') goalText = g.goal.phase === 'drop' ? `DELIVER ${Math.ceil(Math.max(0, g.goal.timer))}s · ${g.goal.delivered}/3` : `REACH PICKUP · ${g.goal.delivered}/3`;
     g.text(goalText, g.width / 2, g.height - 20, 13, 'rgba(245,244,240,.85)', 'center', 700);
     g.text(`${SPEC.control.toUpperCase()} · ${SPEC.enemy.toUpperCase()}`, 16, g.height - 42, 11, 'rgba(245,244,240,.55)', 'left', 600);
@@ -523,6 +606,7 @@ g.start({
     }
     if (SPEC.control === 'train' || SPEC.control === 'drive') g.text(`${Math.round(Math.abs(P.speed))} km/h`, g.width - 16, g.height - 46, 12, 'rgba(245,244,240,.7)', 'right', 600);
     if (g.hunter) g.text(`HUNTER ${Math.round(g.hunter.gap)}m BEHIND`, g.width / 2, 44, 13, '#ffffff', 'center', 800);
+    if (g.boss && g.foes.indexOf(g.boss) >= 0) g.text('THE TYRANT IS AWAKE', g.width / 2, 44, 13, '#ffffff', 'center', 800);
     if (P.msgT > 0) g.text(P.msg, g.width / 2, g.height - 60, 13, '#ffffff', 'center', 700);
 
     /* minimap for open worlds */
@@ -535,6 +619,10 @@ g.start({
       for (const b of g.solids) c.fillRect(mx + b.x0 * s, my + b.z0 * s, Math.max(1, b.w * s), Math.max(1, b.d * s));
       c.fillStyle = 'rgba(245,244,240,.9)';
       for (const it of g.items) c.fillRect(mx + it.x * s - 1.5, my + it.z * s - 1.5, 3, 3);
+      for (const cr of g.crests) c.fillRect(mx + cr.x * s - 1.5, my + cr.z * s - 1.5, 3, 3);
+      c.fillStyle = 'rgba(245,244,240,.55)';
+      for (const pk of g.pickups) c.fillRect(mx + pk.x * s - 1, my + pk.z * s - 1, 2, 2);
+      c.fillStyle = 'rgba(245,244,240,.9)';
       if (mark) c.fillRect(mx + mark.x * s - 2, my + mark.z * s - 2, 4, 4);
       for (const f of g.foes) c.fillRect(mx + f.x * s - 1, my + f.z * s - 1, 2.5, 2.5);
       c.save(); c.translate(mx + P.x * s, my + P.z * s); c.rotate(P.yaw);

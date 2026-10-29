@@ -591,7 +591,7 @@ async function test(name, fn) {
     G.player.x = 848; G.player.y = 848;
     G.cops.length = 0;
     G.cops.push({ x: 860, y: 848, w: 46, h: 24, angle: Math.PI, speed: 0, hp: 50, flash: 0 });
-    for (let i = 0; i < 90; i += 1) G.scene.update(G, 1 / 60);
+    for (let i = 0; i < 240; i += 1) G.scene.update(G, 1 / 60); // generous window: even a chase oscillation nets the 0.7s arrest
     assert.equal(G.state, 'over', 'arrest ends the run');
     assert.match(String(G._overReason || ''), /BUSTED/);
   });
@@ -1326,6 +1326,59 @@ async function test(name, fn) {
     assert.ok(ch.hunter.gap > gap1, 'a hit pushes the hunter back');
   });
 
+  await test('horror detail pack: crests unseal the gate, supplies are scarce, the Tyrant wakes', async () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const { parseSpec3d } = require('../shared/gamekit/spec3d.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    const c3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'composed3d.js'), 'utf8');
+    const src = `const GAME_SPEC3D = ${JSON.stringify(parseSpec3d('resident evil style survival horror'))};\n` + c3d;
+    const G = runGame({ engineSrc: engine, gameSrc: src, frames: 120, extraSrcs: [engine3d] }).__composed3d;
+    G.scene.init(G); // fresh mansion: harness walking may already have consumed a crest or herb
+    G.state = 'play'; G.P3.hp = 100; G.P3.hitT = 9; G.P3.msgT = 0;
+    assert.equal(G.crests.length, 3, 'three crests are hidden');
+    assert.equal(G.pickups.filter((p) => p.kind === 'herb').length, 5, 'five herbs');
+    assert.equal(G.pickups.filter((p) => p.kind === 'ammo').length, 4, 'four ammo boxes');
+    // the gate is sealed: standing on the exit with no crests must NOT win.
+    // clear the area first — a nearby pickup could steal the SEALED message.
+    G.crests.length = 0; G.pickups.length = 0;
+    G.P3.x = G.marker.x + 5; G.P3.z = G.marker.z;
+    G.scene.update(G, 1 / 60);
+    assert.equal(G.state, 'play', 'sealed gate blocks the escape');
+    assert.match(G.P3.msg, /SEALED/);
+    // herbs heal, ammo boxes refill and cancel the reload
+    G.scene.init(G); G.state = 'play'; G.P3.hitT = 9;
+    G.P3.hp = 40;
+    const herb = G.pickups.find((p) => p.kind === 'herb');
+    G.P3.x = herb.x + 3; G.P3.z = herb.z;
+    G.scene.update(G, 1 / 60);
+    assert.equal(G.P3.hp, 70, 'herb heals +30');
+    G.P3.hitT = 9; G.P3.ammo = 2; G.P3.reload = 0.5;
+    const ammo = G.pickups.find((p) => p.kind === 'ammo');
+    G.P3.x = ammo.x + 3; G.P3.z = ammo.z;
+    G.scene.update(G, 1 / 60);
+    assert.equal(G.P3.ammo, 12, 'ammo box refills the magazine');
+    assert.equal(G.P3.reload, 0, 'reload cancelled');
+    // zombie dogs mix into the horde
+    for (let i = 0; i < 40; i += 1) G.scene.spawnFoe(G);
+    assert.ok(G.foes.some((f) => f.kind === 'dog'), 'zombie dogs spawn');
+    // three crests wake the Tyrant and unseal the gate
+    for (const cr of G.crests.slice()) {
+      G.P3.hitT = 9; G.P3.hp = 100;
+      G.P3.x = cr.x + 3; G.P3.z = cr.z;
+      G.scene.update(G, 1 / 60);
+    }
+    assert.equal(G.goal.crests, 3, 'all crests found');
+    assert.ok(G.boss && G.foes.includes(G.boss), 'the Tyrant is awake and hunting');
+    assert.equal(G.boss.hp, 10);
+    // the gate is open now: reaching it wins
+    G.state = 'play'; G.P3.hitT = 9; G.P3.hp = 100; G.foes.length = 0;
+    G.P3.x = G.marker.x + 5; G.P3.z = G.marker.z;
+    G.scene.update(G, 1 / 60);
+    assert.equal(G.state, 'over', 'escaped the dark');
+    assert.match(G._overReason, /ESCAPED/);
+  });
+
   await test('builtin routes franchise asks to composed 3D games', async () => {
     const mk = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
     const gn = (t) => agent.parseActions(t).find((a) => a.type === 'game_new');
@@ -1357,7 +1410,11 @@ async function test(name, fn) {
     lm.changePin('1234', '5678');
     assert.strictEqual(lm.verify('5678'), true);
     const raw = fs.readFileSync(path.join(tmp, 'lock.json'), 'utf8');
-    assert.ok(!raw.includes('5678'), 'PIN must never be stored in plaintext');
+    // quoted so random hex/digits can never collide, plus a real scrypt-hash shape check
+    assert.ok(!raw.includes('"5678"'), 'PIN must never be stored in plaintext');
+    const stored = JSON.parse(raw);
+    assert.ok(/^[0-9a-f]{64,}$/.test(stored.hash), 'a real scrypt hash is stored, not the PIN');
+    assert.ok(stored.salt !== '5678' && stored.hash !== '5678');
     lm.clearPin();
     assert.strictEqual(lm.isSet(), false);
   });

@@ -97,14 +97,23 @@ function parseSpec3d(text) {
 }
 
 function describeSpec3d(spec) {
+  const detail = {
+    escape: 'find 3 crests to unseal the gate — herbs and ammo boxes are scarce, zombie dogs roam, and the third crest wakes a Tyrant-class boss that hunts you out',
+    waves: 'hitscan rifle (21° cone, 12-round mag, reload) against escalating waves — soldiers shoot back',
+    collect: spec.world === 'rails'
+      ? 'collect 15 scrap while THE HUNTER chases your train — every hit pushes it back 150 m'
+      : 'collect 12 tokens across the city while stalkers weave at you',
+    deliver: '3 timed pickup→drop runs with police pursuit — rewards escalate'
+  }[spec.goal] || '';
   return [
     `control: ${spec.control}`,
     `enemies: ${spec.enemy}`,
     `weapon: ${spec.weapon}`,
     `goal: ${spec.goal}`,
     `world: ${spec.world}`,
-    `mood: ${spec.atmosphere.ambient < 0.25 ? 'dark/horror' : 'daylight'}${spec.atmosphere.rain ? ' + rain' : ''}`
-  ].join(' · ');
+    `mood: ${spec.atmosphere.ambient < 0.25 ? 'dark/horror' : 'daylight'}${spec.atmosphere.rain ? ' + rain' : ''}`,
+    detail ? `detail: ${detail}` : ''
+  ].filter(Boolean).join(' · ');
 }
 
 module.exports = { parseSpec3d, describeSpec3d, CONTROLS, ENEMIES, WEAPONS, GOALS, WORLDS };
