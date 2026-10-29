@@ -451,14 +451,69 @@ stubbed canvas/DOM/audio and pumps 600 frames of simulated input. Any runtime
 error fails the build — "the game doesn't run" cannot ship. It already caught
 a real crash in a template, which is now fixed.
 
-The same four games ship inside the app as an arcade: open
-`<app>/play/` (or `/play/` on the preview server) and play them with no
+The same games ship inside the app as an arcade — twelve of them now, 2D and
+3D: open `<app>/play/` (or `/play/` on the preview server) and play with no
 install — proof the engine is real, not a promise.
+
+## Real 3D — GameKit3D and MONO CITY 3D
+
+A 2.5D mini-game is not an answer to "make me a 3D game". `shared/gamekit/engine3d.js`
+is a **software 3D renderer** written from scratch for the same zero-dependency
+runtime — no WebGL, no three.js, no GPU required:
+
+- 4×4 row-major matrices; `view = Rx(pitch)·Ry(yaw)·T(−pos)` — actual linear
+  algebra, unit-tested (`GameKit3D math is real math`)
+- perspective projection with near-plane rejection (points behind the camera
+  never draw inverted)
+- back-face culling + painter-sort depth ordering
+- per-face Lambert lighting, ambient floor, distance **fog**
+- `boxFaces()` / `groundFace()` / `rotateFaceY()` primitives — the world is
+  monochrome boxes, and it is fast
+
+**MONO CITY 3D** (`templates/city3d.js`) is the first game on it: first-person
+delivery runs through a 25-building city — 12 packages pay $50, 10 cars cost
+15 HP on contact, fog closes the horizon, HUD drawn in pure canvas. Playable
+in the built-in arcade (`/play/?g=city3d`).
+
+## Composed 3D — the franchise factory
+
+Named asks deserve named answers. `shared/gamekit/spec3d.cjs` parses your
+sentence into **3D game DNA**, and `templates/composed3d.js` implements every
+combination on GameKit3D — five famous franchises come out as five genuinely
+different games, not five reskins:
+
+| You ask for | Control | Enemies | Goal | World | Mood |
+|---|---|---|---|---|---|
+| "resident evil style horror" | FPS walk + look | zombies | escape the mansion | mansion | dark fog, rain |
+| "spider-man swinging game" | web-swing (Space anchors a rope you pump) | stalkers | collect 12 tokens | open city | bright day |
+| "choo-choo charles train" | lane-switching train (A/D), throttle | **the Hunter** chases on rails | collect 15 cargo, outrun it | 4 km rails | dark + rain |
+| "gta 5 open world" | drivable car, camera follows heading | police pursuit | 3 timed deliveries | open city | bright day |
+| "call of duty shooter" | FPS walk + look | soldiers that shoot back | escalating waves | arena | bright day |
+
+The systems are real: hitscan weapon with a 21° targeting cone, 12-round mag
+and reload, per-enemy HP/damage/speed tables, rope physics, a hunter that
+*closes the gap* and recoils +150 m when you shoot it, delivery timers scaled
+to distance, minimap, rain streaks, fog — and every generated game starts with
+its `GAME_SPEC3D` block so you can read and edit the DNA yourself.
+
+The test suite is the guarantee: it parses all five franchises and asserts
+**five distinct DNAs**, runs each headlessly for 400 frames, fuzz-bombs each
+with chaos input, then white-boxes the mechanics (a hitscan kill pays score
+and burns ammo, a token pays $50, the hunter gains on the train and recoils
+when hit). Four pre-composed demos ship in the arcade too: `horror3d`,
+`swing3d`, `charles3d`, `ops3d`.
+
+**The honest scale note** (the built-in AI tells you the same thing): this
+generates a *playable monochrome 3D homage* in seconds — the genre skeleton of
+those franchises. AAA games are hundreds of people and years of asset
+production; no tool prints that out. What this tool does is make every ask a
+different, running, tested 3D game — and prove it.
 
 ## Testing
 
 ```bash
-npm run test:logic   # 57 pure-Node tests: agent, providers, plugins, lock, memory, bridge
+npm run test:logic   # 95 pure-Node tests: agent, providers, plugins, lock, memory, bridge,
+                     # GameKit3D math, composed-3D franchise DNA + white-box mechanics
 npm run test:ui      # 10 React component tests (vitest + jsdom + Testing Library)
 npm test             # both of the above
 npm run test:e2e     # real Chrome (Playwright) against the production build

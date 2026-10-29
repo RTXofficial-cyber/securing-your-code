@@ -3,6 +3,10 @@
     "arena": "VOID ARENA — twin-stick survival",
     "city": "GRAND THEFT MONO — mini open-world crime city",
     "city3d": "MONO CITY 3D — first-person 3D city (real perspective renderer)",
+    "horror3d": "ESCAPE THE DARK — 3D survival horror (zombies, mansion)",
+    "swing3d": "WEB SWING CITY — 3D superhero collectathon",
+    "charles3d": "THE HUNTER EXPRESS — 3D train horror in the rain",
+    "ops3d": "MONO OPS 3D — 3D wave shooter (soldiers, arena)",
     "platformer": "MONO JUMP — precision platformer",
     "shmup": "STARFALL — vertical shooter",
     "runner": "LINE RUNNER — endless runner",
@@ -13,8 +17,13 @@
     "city",
     "city3d",
     "composed",
+    "composed3d",
     "platformer",
     "runner",
-    "shmup"
+    "shmup",
+    "horror3d",
+    "swing3d",
+    "charles3d",
+    "ops3d"
   ]
 }

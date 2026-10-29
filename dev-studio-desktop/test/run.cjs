@@ -509,6 +509,15 @@ async function test(name, fn) {
     assert.strictEqual(entry.genreOf('a gta clone'), 'city');
     assert.strictEqual(entry.genreOf('open world crime game'), 'city');
     assert.strictEqual(entry.genreOf('a first person 3d city'), 'city3d');
+    // spec3d payloads scaffold the composed-3D runtime + engine3d
+    const { parseSpec3d } = require('../shared/gamekit/spec3d.cjs');
+    const r5 = tool.run({ spec3d: parseSpec3d('resident evil style survival horror'), dir: 'game5' }, ctx);
+    assert.strictEqual(r5.ok, true);
+    assert.strictEqual(r5.genre, '3d:fps');
+    assert.ok(written['game5/engine3d.js'].includes('GameKit3D'));
+    assert.ok(written['game5/game.js'].includes('GAME_SPEC3D'));
+    assert.ok(written['game5/index.html'].includes('engine3d.js'));
+    assert.match(r5.mechanics, /dark\/horror/);
     const list = entry.tools.find((t) => t.name === 'game_list');
     ctx.ws.tree = () => [{ name: 'game', path: 'game', type: 'dir', children: [
       { name: 'game.js', path: 'game/game.js', type: 'file' },
@@ -540,10 +549,13 @@ async function test(name, fn) {
     const kb = await mk('how are gta style open-world games made?');
     assert.match(kb, /pillars|streamed world/i);
     assert.ok(!agent.parseActions(kb).some((a) => a.type === 'game_new'), 'questions must not scaffold');
-    // 3D asks route to the real-3D template
+    // 3D asks route to the composed-3D runtime with real DNA
     const d3 = await mk('make me a 3d city game with traffic');
-    assert.match(d3, /MONO CITY 3D/);
-    assert.ok(agent.parseActions(d3).some((a) => a.type === 'game_new' && a.genre === 'city3d'));
+    const a3d = agent.parseActions(d3).find((a) => a.type === 'game_new');
+    assert.ok(a3d && a3d.spec3d, 'spec3d emitted for 3D asks');
+    assert.equal(a3d.spec3d.world, 'city');
+    assert.equal(a3d.spec3d.control, 'drive', 'traffic -> driving');
+    assert.match(d3, /3D game DNA/);
     // AAA question -> honest knowledge, no scaffold
     const aaa = await mk('how do aaa games like gta 6 get made?');
     assert.match(aaa, /2000 people|billions/i);
@@ -588,9 +600,9 @@ async function test(name, fn) {
     const { runGame } = require('./harness/headless.cjs');
     const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
     const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
-    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed', 'city', 'city3d']) {
+    for (const t of ['arena', 'platformer', 'shmup', 'runner', 'composed', 'city', 'city3d', 'composed3d']) {
       const game = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', `${t}.js`), 'utf8');
-      runGame({ engineSrc: engine, gameSrc: game, frames: 600, extraSrcs: t === 'city3d' ? [engine3d] : [] }); // throws on any runtime error
+      runGame({ engineSrc: engine, gameSrc: game, frames: 600, extraSrcs: (t === 'city3d' || t === 'composed3d') ? [engine3d] : [] }); // throws on any runtime error
     }
   });
 
@@ -1179,9 +1191,11 @@ async function test(name, fn) {
       assert.equal(G.buildings3.length, 25);
       assert.equal(G.cars3.length, 10);
       assert.equal(G.collect3.length, 12);
-      // package pickup pays
+      // package pickup pays — isolate the target package so a second nearby
+      // pickup can't make the +1 assert flake
       G.state = 'play';
       const cp = G.collect3[0];
+      G.collect3.length = 0; G.collect3.push(cp);
       G.P3.x = cp.x + 5; G.P3.z = cp.z; G.P3.hp = 100; G.P3.hitT = 9;
       const n0 = G.collected; const s0 = G.score;
       G.scene.update(G, 1 / 60);
@@ -1189,7 +1203,10 @@ async function test(name, fn) {
       assert.equal(G.score, s0 + 50, 'cash rewarded');
       // traffic hits hurt
       G.P3.hitT = 0;
+      G.collect3.length = 0; // no package may steal the HIT BY TRAFFIC message
       const car = G.cars3[0];
+      car.speed = 0; // freeze the car: no drive-off and no wrap-boundary teleport flake
+      car.along = 800; // mid-map, far from the wrap edges
       const cx = car.axis === 'x' ? car.along : car.lane;
       const cz = car.axis === 'x' ? car.lane : car.along;
       G.P3.x = cx; G.P3.z = cz;
@@ -1214,6 +1231,115 @@ async function test(name, fn) {
     }
     const src = `const GAME_SPEC = ${JSON.stringify(parseSpec('zombie survival with dash'))};\n` + composed;
     runGame({ engineSrc: engine, gameSrc: src, frames: 250, fuzz: 9 });
+  });
+
+  console.log('\nComposed3D — franchise DNA games');
+
+  await test('spec3d parses franchises into five distinct 3D DNAs', async () => {
+    const { parseSpec3d } = require('../shared/gamekit/spec3d.cjs');
+    const re = parseSpec3d('make a resident evil style survival horror game');
+    assert.deepEqual([re.control, re.enemy, re.goal, re.world], ['fps', 'zombie', 'escape', 'mansion']);
+    assert.ok(re.atmosphere.ambient < 0.25, 'horror is dark');
+    const sp = parseSpec3d('spider-man swinging through the city collecting tokens');
+    assert.equal(sp.control, 'swing');
+    assert.equal(sp.world, 'city');
+    const ch = parseSpec3d('choo-choo charles style train horror');
+    assert.deepEqual([ch.control, ch.world], ['train', 'rails']);
+    assert.ok(ch.atmosphere.rain, 'the hunter rides in the rain');
+    const gta = parseSpec3d('gta 5 open world crime driving game');
+    assert.deepEqual([gta.control, gta.enemy, gta.goal], ['drive', 'police', 'deliver']);
+    const cod = parseSpec3d('call of duty fps with enemy waves');
+    assert.deepEqual([cod.control, cod.enemy, cod.goal, cod.world], ['fps', 'soldier', 'waves', 'arena']);
+    const dnas = new Set([re, sp, ch, gta, cod].map((x) => [x.control, x.enemy, x.goal, x.world].join('|')));
+    assert.equal(dnas.size, 5, 'five franchises must produce five different games');
+  });
+
+  await test('composed3d runs every franchise headlessly and survives fuzz', async () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const { parseSpec3d } = require('../shared/gamekit/spec3d.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    const c3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'composed3d.js'), 'utf8');
+    const requests = [
+      'make a resident evil style survival horror game',
+      'spider-man swinging through the city collecting tokens',
+      'choo-choo charles style train horror game',
+      'gta 5 open world crime driving game',
+      'call of duty fps with enemy waves'
+    ];
+    for (const r of requests) {
+      const src = `const GAME_SPEC3D = ${JSON.stringify(parseSpec3d(r))};\n` + c3d;
+      const sb = runGame({ engineSrc: engine, gameSrc: src, frames: 400, extraSrcs: [engine3d] });
+      assert.ok(sb.__composed3d, `hook exposed for: ${r}`);
+      runGame({ engineSrc: engine, gameSrc: src, frames: 250, extraSrcs: [engine3d], fuzz: 3 });
+    }
+  });
+
+  await test('composed3d mechanics: hitscan kills, pickups pay, the hunter closes in', async () => {
+    const { runGame } = require('./harness/headless.cjs');
+    const { parseSpec3d } = require('../shared/gamekit/spec3d.cjs');
+    const engine = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine.js'), 'utf8');
+    const engine3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'engine3d.js'), 'utf8');
+    const c3d = fs.readFileSync(path.join(__dirname, '..', 'shared', 'gamekit', 'templates', 'composed3d.js'), 'utf8');
+    const run = (req) => {
+      const src = `const GAME_SPEC3D = ${JSON.stringify(parseSpec3d(req))};\n` + c3d;
+      return runGame({ engineSrc: engine, gameSrc: src, frames: 200, extraSrcs: [engine3d] }).__composed3d;
+    };
+
+    // COD: waves spawn soldiers; two hitscan shots kill one
+    const cod = run('call of duty fps with enemy waves');
+    cod.state = 'play'; cod.P3.hp = 100;
+    while (cod.foes.length < 5) cod.scene.spawnFoe(cod); // harness frames may have thinned the wave
+    const P = cod.P3;
+    P.yaw = 0; P.pitch = 0; P.ammo = 12; P.fireT = 0; P.reload = 0;
+    const f = cod.foes[0]; f.x = P.x; f.z = P.z - 100; f.hp = 2;
+    const kills0 = cod.goal.kills; const score0 = cod.score;
+    cod.scene.shoot(cod); P.fireT = 0; cod.scene.shoot(cod);
+    assert.equal(cod.goal.kills, kills0 + 1, 'soldier down');
+    assert.ok(cod.score > score0, 'kill paid score');
+    assert.equal(P.ammo, 10, 'ammo consumed');
+
+    // Spider: packages pay on pickup
+    const sp = run('spider-man swinging through the city collecting tokens');
+    sp.state = 'play'; sp.P3.hp = 100;
+    if (!sp.items.length) sp.items.push(sp.scene.spawnPoint(sp, true));
+    const it = sp.items[0];
+    sp.P3.x = it.x + 4; sp.P3.z = it.z;
+    const n0 = sp.goal.collected; const s0 = sp.score;
+    sp.scene.update(sp, 1 / 60);
+    assert.equal(sp.goal.collected, n0 + 1, 'token grabbed');
+    assert.equal(sp.score, s0 + 50, 'tokens pay $50');
+
+    // Charles: the hunter closes in; shooting pushes it back
+    const ch = run('choo-choo charles style train horror game');
+    ch.state = 'play'; ch.P3.hp = 100;
+    if (!ch.hunter) ch.hunter = { gap: 420, hp: 8, weave: 0 }; // harness frames may have slain it
+    ch.hunter.gap = 400; ch.hunter.hp = 8; // deterministic starting distance
+    const gap0 = ch.hunter.gap;
+    for (let i = 0; i < 60; i += 1) ch.scene.update(ch, 1 / 60);
+    assert.ok(ch.hunter.gap < gap0, 'hunter gains on the train');
+    const gap1 = ch.hunter.gap;
+    ch.P3.yaw = 0; ch.P3.pitch = 0; ch.P3.ammo = 12; ch.P3.fireT = 0;
+    const hp0 = ch.hunter.hp;
+    ch.scene.shoot(ch);
+    assert.equal(ch.hunter.hp, hp0 - 1, 'hunter takes damage');
+    assert.ok(ch.hunter.gap > gap1, 'a hit pushes the hunter back');
+  });
+
+  await test('builtin routes franchise asks to composed 3D games', async () => {
+    const mk = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
+    const gn = (t) => agent.parseActions(t).find((a) => a.type === 'game_new');
+    const re = await mk('make me a resident evil style game');
+    assert.equal(gn(re).spec3d.enemy, 'zombie');
+    assert.match(re, /RESIDENT EVIL/);
+    assert.ok(gn(re) && agent.parseActions(re).some((a) => a.type === 'game_check'), 'verified after scaffold');
+    assert.equal(gn(await mk('make a spider-man swinging game')).spec3d.control, 'swing');
+    assert.equal(gn(await mk('choo choo charles style game banao')).spec3d.control, 'train');
+    assert.equal(gn(await mk('make a gta 5 style game')).spec3d.control, 'drive');
+    assert.equal(gn(await mk('call of duty style shooter')).spec3d.enemy, 'soldier');
+    // plain "gta" (no 5/6) still routes to the 2D mini-GTA — no accidental upgrade
+    const plain = await mk('make a game like gta');
+    assert.equal(gn(plain).genre, 'city');
   });
 
   console.log('\nApp lock & audit');

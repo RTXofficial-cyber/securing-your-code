@@ -1016,9 +1016,19 @@ async function chat(model, messages) {
     // Anything with extra wishes gets a composed game built from its DNA.
     const bare = text.split(/\s+/).length <= 5 && !/with|and|add|plus|neon|zombie|pipe|flappy|magnet|shield|rapid|dash|bomb/.test(text);
     const cityAsk = /\bgta\b|grand theft|open.?world|crime (?:city|game)|mafia|heist|police chase|car game|driving game/.test(text);
+    const franchiseAsk = /resident evil|spider.?man|marvel|choo.?cho+p|choo.?chop|charles|call of duty|\bcod\b|battlefield|counter.?strike|gta ?[56v]|grand theft auto ?[56v]/.test(text);
     const threeDAsk = /\b3-?d\b|three.?d|first.?person/.test(text);
-    const preset = threeDAsk ? 'city3d'
-      : cityAsk ? 'city'
+    if (franchiseAsk || threeDAsk) {
+      const { parseSpec3d, describeSpec3d } = require('./gamekit/spec3d.cjs');
+      const spec3d = parseSpec3d(raw);
+      return [
+        `Plan: (1) read your request into **3D game DNA** — ${describeSpec3d(spec3d)} — (2) compose that exact game on the real 3D engine (GameKit3D: perspective, lighting, fog), (3) verify it runs.`,
+        action('game_new', { spec3d, dir: 'game' }),
+        action('game_check', { dir: 'game' }),
+        `Done — **${String(spec3d.title).toUpperCase()}** is in **game/**: ${describeSpec3d(spec3d)}. Press **▶ play** or open \`game/index.html\`. Change anything — "make it darker", "zombies instead of soldiers", "train horror with rain" — and I recompose it. Honest note: franchise-scale games take studios years; this is the same SYSTEMS (control scheme, enemy AI, goals, atmosphere) composed into a real 3D game that provably runs.`
+      ].join('\n\n');
+    }
+    const preset = cityAsk ? 'city'
       : !bare ? null
       : /\bplatformer\b/.test(text) ? 'platformer'
       : /\brunner\b/.test(text) ? 'runner'
