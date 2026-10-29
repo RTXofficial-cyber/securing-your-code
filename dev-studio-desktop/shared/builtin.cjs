@@ -504,6 +504,7 @@ function identityAnswer(t) {
     '- Debugging saath: error paste karein → diagnosis + fix (+ safe action); "fix it" se apply',
     '- Asli files parhna: "explain server.js", "show app.py" → real content se jawab',
     '- Follow-ups: "run it" pichhli file chalata hai; rename/delete bhi (delete mein confirmation lazmi)',
+    '- Multi-file refactor: "refactor util.js" ya "split util.js into helpers.js" → functions safe nikaal kar nayi module + require rewrite + node --check verify',
     '- Code search: "find TODO in my code" → har file mein path:line matches',
     '- Math: `what is (2+3)*4%7?`',
     '- Workspace dekhna: `list my files` · environment: `run environment check`',
@@ -667,8 +668,138 @@ function explainFile(rel) {
     /module\.exports|export\s/.test(src) ? 'exports something other files can import' : 'self-contained (no exports)',
     todos.length ? `open markers: ${todos.slice(0, 4).join(' · ')}` : 'no TODO markers',
     '',
-    'Chaho to main is file mein kuch bhi badal sakta hoon: "add a function X to ' + rel + '", "rename ' + rel + ' to other.js", ya koi error paste karo.'
+    'Chaho to main is file mein kuch bhi badal sakta hoon: "add a function X to ' + rel + '", "rename ' + rel + ' to other.js", "refactor ' + rel + '" (functions ko alag module mein split), ya koi error paste karo.'
   ].join('\n');
+}
+
+/* Refactor engine: split a CommonJS file into original + extracted lib.
+   Brace matching skips strings/templates/comments so bodies cut cleanly;
+   only "leaf" functions are moved (no calls to siblings, no references to
+   top-level consts) so the split can never break behaviour. Both results
+   are verified with `node --check` as part of the emitted actions.       */
+
+function skipQuote(src, i, q) {
+  i += 1;
+  while (i < src.length) {
+    if (src[i] === '\\') { i += 2; continue; }
+    if (src[i] === q || src[i] === '\n') return i + 1;
+    i += 1;
+  }
+  return i;
+}
+
+function skipTemplate(src, i) {
+  i += 1;
+  let interp = 0;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\\') { i += 2; continue; }
+    if (interp > 0) {
+      if (c === '{') interp += 1;
+      else if (c === '}') interp -= 1;
+      i += 1;
+      continue;
+    }
+    if (c === '`') return i + 1;
+    if (c === '$' && src[i + 1] === '{') { interp = 1; i += 2; continue; }
+    i += 1;
+  }
+  return i;
+}
+
+function findBodyEnd(src, openIdx) {
+  let depth = 0;
+  let i = openIdx;
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '/' && src[i + 1] === '/') { const n = src.indexOf('\n', i); if (n < 0) return -1; i = n; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); if (e < 0) return -1; i = e + 2; continue; }
+    if (c === '"' || c === "'") { i = skipQuote(src, i, c); continue; }
+    if (c === '`') { i = skipTemplate(src, i); continue; }
+    if (c === '{') depth += 1;
+    else if (c === '}') { depth -= 1; if (depth === 0) return i; }
+    i += 1;
+  }
+  return -1;
+}
+
+function topLevelFunctions(src) {
+  const fns = [];
+  const re = /^function\s+([A-Za-z0-9_$]+)\s*\(/gm;
+  let m;
+  while ((m = re.exec(src))) {
+    const brace = src.indexOf('{', m.index + m[0].length - 1);
+    if (brace < 0) continue;
+    const end = findBodyEnd(src, brace);
+    if (end < 0) continue;
+    fns.push({ name: m[1], start: m.index, end: end + 1, body: src.slice(m.index, end + 1) });
+    re.lastIndex = end + 1;
+  }
+  return fns;
+}
+
+function splitFile(rel, outRel) {
+  const src = readRel(rel);
+  if (src === null) return { error: `**${rel}** workspace mein nahi mili — pehle file check karein ("show ${rel}").` };
+  if (!/\.(?:js|cjs)$/.test(rel)) return { error: `**${rel}** JavaScript (CommonJS) nahi hai — abhi sirf .js/.cjs files split hoti hain.` };
+  if (/^\s*(?:import|export)\s/m.test(src)) return { error: `**${rel}** ES modules (import/export) use karti hai — uska refactor abhi support nahi; pehle CommonJS mein convert karein.` };
+  const out = outRel || rel.replace(/\.(js|cjs)$/, (x) => '-lib' + x);
+  if (out === rel) return { error: 'Output file ka naam original se alag hona chahiye.' };
+  if (readRel(out) !== null) return { error: `**${out}** pehle se maujood hai — overwrite nahi karunga. Doosra naam dein: "split ${rel} into helpers.js".` };
+  const fns = topLevelFunctions(src);
+  if (fns.length < 2) return { error: `**${rel}** mein split karne layak functions nahi milein (kam az kam 2 top-level functions chahiye).` };
+
+  const names = fns.map((f) => f.name);
+  const consts = [...src.matchAll(/^(?:const|let|var)\s+([A-Za-z0-9_$]+)/gm)].map((x) => x[1]);
+  const callsSibling = (body, own) => names.some((n) => n !== own && new RegExp(`\\b${n}\\s*\\(`).test(body));
+  const usesTopConst = (body) => consts.some((n) => new RegExp(`\\b${n}\\b`).test(body));
+  const extract = fns.filter((f) => !callsSibling(f.body, f.name) && !usesTopConst(f.body));
+  if (!extract.length) return { error: `**${rel}** ke functions aapas mein ya top-level variables par depend karte hain — safe automatic split mumkin nahi. Bataiye kaunsi function alag karni hai: "split ${rel} into lib.js" ke saath main sirf independent functions uthata hoon.` };
+
+
+  const exNames = extract.map((f) => f.name);
+  const libSrc = [
+    `// Extracted from ${rel} by Studio Agent — leaf utilities, no side effects.`,
+    ...extract.map((f) => f.body),
+    `module.exports = { ${exNames.join(', ')} };`,
+    ''
+  ].join('\n\n');
+
+  let rest = src;
+  for (let i = extract.length - 1; i >= 0; i -= 1) {
+    const f = extract[i];
+    let end = f.end;
+    while (rest[end] === '\n' && rest[end + 1] === '\n') end += 1; // tidy blank lines
+    rest = rest.slice(0, f.start) + rest.slice(end);
+  }
+  const reqLine = `const { ${exNames.join(', ')} } = require('./${out.replace(/^\.\//, '').split('/').pop()}');`;
+  const reqs = [...rest.matchAll(/^const [^\n]*require\([^\n]*\n?/gm)];
+  if (reqs.length) {
+    const at = reqs[reqs.length - 1].index + reqs[reqs.length - 1][0].length;
+    rest = rest.slice(0, at) + reqLine + '\n' + rest.slice(at);
+  } else {
+    rest = reqLine + '\n\n' + rest.replace(/^\n+/, '');
+  }
+  rest = rest.replace(/\n{3,}/g, '\n\n');
+
+  return {
+    ok: true,
+    moved: exNames,
+    kept: names.filter((n) => !exNames.includes(n)),
+    reply: [
+      `**${rel}** ko refactor kar raha hoon — ${exNames.length} independent function(s) (**${exNames.join(', ')}**) nayi file **${out}** mein ja rahi hain; original file unhe require karegi.`,
+      names.length - exNames.length ? `Dependent functions (${names.filter((n) => !exNames.includes(n)).join(', ')}) safety ke liye ${rel} mein hi rahengi.` : '',
+      '',
+      writeFile(out, libSrc),
+      '',
+      writeFile(rel, rest),
+      '',
+      'Dono files syntax-verify ho rahi hain:',
+      run(`node --check "${out}" && node --check "${rel}"`),
+      '',
+      'Verify pass hone ke baad "run it" boliye — behaviour pehle jaisa hi rahega.'
+    ].filter((x) => x !== '' || true).join('\n')
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -788,6 +919,19 @@ async function chat(model, messages) {
     const f = /^yes (?:delete|remove) ([A-Za-z0-9_./\-]+)$/i.exec(text.trim())[1];
     const rm = IS_WIN ? `del "${f}"` : `rm -f "${f}"`;
     return [`Theek hai — **${f}** delete ho rahi hai:`, action('run_command', { command: rm })].join('\n\n');
+  }
+
+  // ---- multi-file refactor: split/extract into a new module ----
+  const FILE = '([A-Za-z0-9_./\\\\-]+\\.(?:[cm]?js|cjs))';
+  const splitInto = new RegExp(`split ${FILE} (?:in)?to ([A-Za-z0-9_./\\\\-]+\\.(?:[cm]?js|cjs))`, 'i').exec(raw);
+  const refac = new RegExp(`(?:refactor|split|extract (?:the )?functions? (?:from|of|in)) ${FILE}`, 'i').exec(raw)
+    || new RegExp(`${FILE} ko (?:alag|refactor|split)`, 'i').exec(raw);
+  if (splitInto || refac) {
+    const m = splitInto || refac;
+    const res = splitFile(m[1].replace(/^[\\/]+/, ''), splitInto ? m[2].replace(/^[\\/]+/, '') : null);
+    if (res.error) return res.error;
+    note([res.ok && m[1], (splitInto ? m[2] : String(m[1]).replace(/\.(js|cjs)$/, (x) => '-lib' + x))].filter(Boolean));
+    return res.reply;
   }
 
   // ---- question-shaped concept queries get explained BEFORE any build ----

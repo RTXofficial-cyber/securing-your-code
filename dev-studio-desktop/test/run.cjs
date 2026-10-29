@@ -614,6 +614,54 @@ async function test(name, fn) {
     assert.match(r3, /type error/i);
   });
 
+  await test('refactor splits a real file into modules and the result runs', async () => {
+    const dir = path.join(tmp, 'brainws');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'util.js'), [
+      'const fs = require("fs");',
+      '',
+      'function add(a, b) {',
+      '  const tricky = "unbalanced } brace in string";',
+      '  return a + b + tricky.length;',
+      '}',
+      '',
+      'function greet(name) {',
+      '  // a comment with a } brace',
+      '  return `Hello ${name}!`;',
+      '}',
+      '',
+      'function main() {',
+      '  console.log(greet("world"), add(1, 2), fs.existsSync("."));',
+      '}',
+      '',
+      'main();',
+      ''
+    ].join('\n'));
+    const reply = await brain.chat('x', [{ role: 'user', content: 'refactor util.js' }]);
+    assert.match(reply, /util-lib\.js/);
+    const acts = agent.parseActions(reply);
+    const writes = acts.filter((a) => a.type === 'write_file');
+    assert.ok(writes.some((w) => w.path === 'util-lib.js' && /module\.exports/.test(w.content) && /function add/.test(w.content)));
+    assert.ok(writes.some((w) => w.path === 'util.js' && /require\('.\/util-lib\.js'\)/.test(w.content)));
+    assert.ok(acts.some((a) => a.type === 'run_command' && /node --check/.test(a.command)));
+    // main() calls greet/add, so it must STAY in util.js (dependency guard)
+    const lib = writes.find((w) => w.path === 'util-lib.js');
+    assert.ok(/function greet/.test(lib.content) && /function add/.test(lib.content));
+    assert.ok(!/function main/.test(lib.content));
+    // execute for real, then run — behaviour must be unchanged
+    const wsR = makeWorkspaceHelpers({ value: dir });
+    await agent.executeActions(acts, wsR);
+    const check = await agent.runShell('node --check util-lib.js && node --check util.js && node util.js', dir, 30000);
+    assert.equal(check.code, 0, 'refactored project must pass --check and run: ' + check.stderr);
+    assert.match(check.stdout, /Hello world!/);
+    // guards: refusing to overwrite an existing target, and ESM files
+    const again = await brain.chat('x', [{ role: 'user', content: 'split util.js into util-lib.js' }]);
+    assert.match(again, /pehle se maujood/);
+    fs.writeFileSync(path.join(dir, 'esm.js'), 'export function a() {}\nexport function b() {}\n');
+    const esm = await brain.chat('x', [{ role: 'user', content: 'refactor esm.js' }]);
+    assert.match(esm, /ES modules/);
+  });
+
   await test('follow-ups work: run it, fix it, rename, guarded delete', async () => {
     fs.writeFileSync(path.join(tmp, 'brainws', 'hello.js'), 'console.log(1);\n');
     await brain.chat('x', [{ role: 'user', content: 'write a node script that greets me' }]);

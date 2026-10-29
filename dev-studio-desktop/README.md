@@ -227,6 +227,13 @@ Studio Agent (offline, no key) now behaves like a personal engineer:
   `yes delete x.js` confirmation before any action exists.
 - Everything mutating still travels as action blocks through the permission
   gates and the audit log; reads use the sandboxed workspace helper.
+- **Multi-file refactor** — `refactor util.js` or `split util.js into
+  helpers.js` reads the real file, moves only *independent* ("leaf")
+  functions into a new CommonJS module, rewrites the original to
+  `require` it, and emits `node --check` verification for both files.
+  String/comment-aware brace matching keeps bodies intact; functions that
+  call siblings or use top-level state stay put, and an existing target
+  file is never overwritten (pick another name instead).
 
 ## Autopilot — autonomous plan → execute → verify → fix
 
