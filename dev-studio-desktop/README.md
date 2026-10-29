@@ -235,6 +235,24 @@ Studio Agent (offline, no key) now behaves like a personal engineer:
   call siblings or use top-level state stay put, and an existing target
   file is never overwritten (pick another name instead).
 
+## Can it compete with GPT-6 Astra? (honest answer)
+
+Astra is a frontier *model* (100,000+ GPU training run). Dev Studio is not a
+model — it is the *harness*: the workspace, terminal, permission gates, audit
+log, live web research, plan → execute → verify → check loop. The winning move
+is not competing with Astra but **driving** it:
+
+- Connectors already list **GPT-6 Astra** (ChatGPT connector via
+  `OPENAI_API_KEY`, or OpenRouter via `OPENROUTER_API_KEY`).
+- Deep/Auto/Team modes feed your goal + live research + your real project
+  memory into whichever model you pick, gate every write/command behind your
+  permissions, verify with exit codes and finish with syntax checks.
+- Offline, the built-in brain keeps the same loop running — smaller brain,
+  same discipline, zero cost, zero data leaves your PC.
+
+Where Dev Studio wins outright: ownership (your files never leave your
+machine unless you allow it), the audit trail, and working with no key at all.
+
 ## Deep mode — the full agent: research → build → check
 
 A fourth chat pill, **Deep**, runs the whole loop in one message:

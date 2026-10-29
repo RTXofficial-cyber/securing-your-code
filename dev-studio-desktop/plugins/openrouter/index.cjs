@@ -12,6 +12,7 @@ module.exports = {
     keyEnv: 'OPENROUTER_API_KEY',
     docs: 'https://openrouter.ai/keys',
     models: [
+      { id: 'openai/gpt-6-astra', name: 'GPT-6 Astra (frontier)' },
       { id: 'anthropic/claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
       { id: 'openai/gpt-4o', name: 'GPT-4o' },
       { id: 'google/gemini-2.5-flash', name: 'Gemini 2.5 Flash' },

@@ -156,6 +156,7 @@ const PROVIDERS = [
     docs: 'https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4o-mini',
     models: [
+      { id: 'gpt-6-astra', name: 'GPT-6 Astra (frontier)' },
       { id: 'gpt-4o', name: 'GPT-4o' },
       { id: 'gpt-4o-mini', name: 'GPT-4o mini' },
       { id: 'gpt-4.1', name: 'GPT-4.1' },
