@@ -227,10 +227,10 @@ async function test(name, fn) {
     assert.ok(acts.filter((a) => a.type === 'run_command').length >= 2, 'expected help + real run');
   });
 
-  await test('game and todo intents produce single-file apps', async () => {
+  await test('games scaffold via Game Studio; todo stays single-file', async () => {
     const g = agent.parseActions(await providers.chat('builtin', null, [{ role: 'user', content: 'make a game' }]));
     const t = agent.parseActions(await providers.chat('builtin', null, [{ role: 'user', content: 'make a todo app' }]));
-    assert.ok(g.some((a) => a.path === 'game.html'));
+    assert.ok(g.some((a) => a.type === 'game_new' && a.dir === 'game'), 'games use the Game Studio plugin');
     assert.ok(t.some((a) => a.path === 'todo.html'));
   });
 
@@ -335,7 +335,7 @@ async function test(name, fn) {
   await test('scan discovers official + user plugins', () => {
     const list = pm.scan();
     const ids = list.map((p) => p.id).sort();
-    assert.deepStrictEqual(ids, ['broken', 'demo', 'git-tools', 'ollama', 'openrouter']);
+    assert.deepStrictEqual(ids, ['broken', 'demo', 'game-studio', 'git-tools', 'ollama', 'openrouter']);
   });
 
   await test('loadAll registers plugin providers and tools', () => {
@@ -446,6 +446,57 @@ async function test(name, fn) {
     const build = await ask('can you write a cli tool for me?');
     const acts = agent.parseActions(build);
     assert.ok(acts.some((a) => a.type === 'write_file'), 'build-shaped question still builds');
+  });
+
+  console.log('\nGame Studio');
+  const vm = require('node:vm');
+
+  await test('GameKit engine + all genre templates are valid JavaScript', () => {
+    const files = [
+      'shared/gamekit/engine.js',
+      ...['arena', 'platformer', 'shmup', 'runner'].map((g) => `shared/gamekit/templates/${g}.js`)
+    ];
+    for (const f of files) {
+      const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+      new vm.Script(src, { filename: f }); // throws on any syntax error
+    }
+  });
+
+  await test('game_new scaffolds engine + template + page into the workspace', () => {
+    const entry = require('../plugins/game-studio/index.cjs');
+    const written = {};
+    const ctx = {
+      ws: { write: (rel, content) => { written[rel] = content; }, tree: () => [], read: () => '' },
+      runShell: async () => ({ ok: true, output: '' }),
+      workspace: tmp
+    };
+    const tool = entry.tools.find((t) => t.name === 'game_new');
+    const r = tool.run({ genre: 'space shooter', dir: 'game' }, ctx);
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.genre, 'shmup', 'genre aliases resolve');
+    assert.ok(written['game/engine.js'].includes('class GameKit'));
+    assert.ok(written['game/game.js'].includes('STARFALL'));
+    assert.ok(written['game/index.html'].includes('<canvas'));
+    const list = entry.tools.find((t) => t.name === 'game_list');
+    ctx.ws.tree = () => [{ name: 'game', path: 'game', type: 'dir', children: [
+      { name: 'game.js', path: 'game/game.js', type: 'file' },
+      { name: 'engine.js', path: 'game/engine.js', type: 'file' }
+    ] }];
+    ctx.ws.read = () => written['game/game.js'];
+    const l = list.run({}, ctx);
+    assert.strictEqual(l.games.length, 1);
+    assert.strictEqual(l.games[0].title, 'STARFALL');
+  });
+
+  await test('builtin routes game requests to the Game Studio plugin', async () => {
+    const mk = (t) => providers.chat('builtin', null, [{ role: 'user', content: t }]);
+    const a1 = agent.parseActions(await mk('make a space shooter game'));
+    assert.ok(a1.some((a) => a.type === 'game_new' && a.genre === 'shmup'));
+    const a2 = agent.parseActions(await mk('make a platformer game'));
+    assert.ok(a2.some((a) => a.type === 'game_new' && a.genre === 'platformer'));
+    const a3 = agent.parseActions(await mk('make a game'));
+    assert.ok(a3.some((a) => a.type === 'game_new' && a.dir === 'game'));
+    assert.ok(a3.some((a) => a.type === 'game_check'), 'game is verified after scaffolding');
   });
 
   console.log('\nApp lock & audit');

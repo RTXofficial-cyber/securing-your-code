@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dev Studio Arcade</title>
+    <style>
+      :root { --bg:#0b0b0b; --fg:#f5f4f0; --line:#2a2a2a; }
+      * { box-sizing: border-box; }
+      body { margin:0; background:var(--bg); color:var(--fg); font:14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; display:flex; min-height:100vh; flex-direction:column; align-items:center; }
+      header { padding:26px 16px 8px; text-align:center; }
+      h1 { font-size:26px; letter-spacing:.02em; margin:0 0 6px; font-weight:800; }
+      p { color:#8f8d88; margin:0 0 14px; }
+      nav { display:flex; gap:8px; flex-wrap:wrap; justify-content:center; padding:0 12px 14px; }
+      button { background:transparent; color:var(--fg); border:1px solid var(--line); border-radius:8px; padding:8px 14px; font:inherit; cursor:pointer; }
+      button:hover, button.on { background:var(--fg); color:var(--bg); }
+      iframe { border:1px solid var(--line); border-radius:12px; width:min(96vw, 962px); height:min(80vh, 542px); background:#0b0b0b; }
+      footer { color:#6d6b66; padding:14px; font-size:12px; text-align:center; }
+      kbd { border:1px solid var(--line); border-radius:4px; padding:0 5px; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>DEV STUDIO ARCADE</h1>
+      <p>Four zero-dependency games on the same GameKit engine your AI scaffolds into any workspace.</p>
+    </header>
+    <nav id="nav"></nav>
+    <iframe id="fr" src="./play.html?g=arena" title="game"></iframe>
+    <footer>
+      <kbd>A/D</kbd> or <kbd>←→</kbd> move · <kbd>Space</kbd> jump/fire · <kbd>Shift</kbd> dash · <kbd>X</kbd> bomb · <kbd>P</kbd> pause · <kbd>M</kbd> mute · gamepad works too
+    </footer>
+    <script>
+      const nav = document.getElementById('nav');
+      const fr = document.getElementById('fr');
+      fetch('./games.json').then((r) => r.json()).then((meta) => {
+        (meta.names || []).forEach((name, i) => {
+          const b = document.createElement('button');
+          b.textContent = (meta.titles && meta.titles[name]) || name;
+          b.onclick = () => {
+            [...nav.children].forEach((c) => c.classList.remove('on'));
+            b.classList.add('on');
+            fr.src = `./play.html?g=${name}`;
+          };
+          nav.appendChild(b);
+          if (i === 0) b.classList.add('on');
+        });
+      });
+    </script>
+  </body>
+</html>

@@ -12,7 +12,7 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "node tools/sync-gamekit.mjs && vite build",
     "start": "npm run build && electron .",
     "electron": "electron .",
     "pack": "npm run build && electron-builder --dir",

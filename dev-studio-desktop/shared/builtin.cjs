@@ -452,6 +452,12 @@ const KB = [
     'Read the stack bottom-up: the first frame is where it threw, the last is what called it.',
     'Reproduce → isolate (delete half the code) → fix → regression-test. Binary-search the cause.',
     'Log with levels and context (`user id`, `input size`); `console.log` in prod is a smell.' ] },
+  { m: /game loop|delta time|game feel|juice|frame rate|\bfps\b|collision detect|hitbox/, t: 'Game feel & loops', b: [
+    'Fixed-timestep loop: accumulate real dt, step simulation in 1/60 slices — physics stays stable on any FPS.',
+    'Juice = feedback: particles on every hit, 40-90 ms hit-stop on kills, screen shake scaled to impact, squash & stretch on landings.',
+    'Collision: AABB for rects (`a.x < b.x+b.w && ...`), circle-distance for bullets; shrink hitboxes 10-20% so hits feel fair.',
+    'Coyote time (~100 ms) + jump buffering (~120 ms) make platformers feel responsive instead of punishing.',
+    'Audio sells impact more than graphics: one synth beep per event, pitched by importance.' ] },
   { m: /function|method|closure|scope|arrow function|pure function/, t: 'Functions & scope', b: [
     'A function = named, reusable behaviour: inputs (params) in, one value out.',
     '```js\nconst add = (a, b) => a + b;   // arrow, expression body\n```',
@@ -635,12 +641,19 @@ async function chat(model, messages) {
     ].join('\n\n');
   }
 
-  if (/game|play|snake|reflex|arcade/.test(text)) {
+  if (/game|playable|snake|reflex|arcade|platformer|shooter|runner/.test(text)) {
+    const genre = (function () {
+      if (/platform|jump|mario/.test(text)) return 'platformer';
+      if (/runner|endless|dash|flappy/.test(text)) return 'runner';
+      if (/shooter|shmup|space|star|invaders/.test(text)) return 'shmup';
+      return 'arena';
+    })();
+    const names = { arena: 'VOID ARENA (twin-stick survival)', platformer: 'MONO JUMP (precision platformer)', shmup: 'STARFALL (vertical shooter)', runner: 'LINE RUNNER (endless runner)' };
     return [
-      'Plan: (1) write a single-file browser game, (2) confirm it landed.',
-      writeAll(GAME),
-      list(),
-      'Created **game.html** — a reflex-timing game, zero dependencies. Open the file in any browser, or serve the folder and play. Want snake, pong, or a scoreboard next?'
+      `Plan: (1) scaffold **${names[genre]}** with the GameKit engine, (2) syntax-verify it, (3) tell you how to play.`,
+      action('game_new', { genre, dir: 'game' }),
+      action('game_check', { dir: 'game' }),
+      `Done — a complete game is in **game/**: fixed-timestep loop, particles, screen shake, hit-stop, synth SFX, pause, high-score save and gamepad support. Press the **▶ play** button in the activity bar (or open \`game/index.html\`). Want a different genre? Say "make a platformer / runner / space shooter".`
     ].join('\n\n');
   }
 

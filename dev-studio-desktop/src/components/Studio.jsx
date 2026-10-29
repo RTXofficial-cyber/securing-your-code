@@ -61,6 +61,18 @@ export default function Studio({
   // ---- loopback bridge: open THIS workspace in Chrome ----
   const [bridge, setBridge] = useState(null);
   const [notice, setNotice] = useState('');
+  const playGame = async () => {
+    try {
+      const r = await api.gameOpen?.();
+      if (r?.ok && r?.url) { window.open(r.url, '_blank'); return; }
+      if (r?.ok) { setNotice(`Game opened: ${r.path}`); return; }
+      setNotice(r?.error || 'No game found in this workspace');
+      setTimeout(() => setNotice(''), 6000);
+    } catch (e) {
+      setNotice(`Play error: ${e?.message || e}`);
+    }
+  };
+
   const openInChrome = async () => {
     try {
       const r = await api.bridgeOpen(bridge?.mode || 'full');
@@ -159,6 +171,7 @@ export default function Studio({
         <button className="abtn" title="Setup & permissions" onClick={onSetup}>⚙</button>
         <button className="abtn" title="Settings & API keys" onClick={() => setSettingsOpen(true)}>⚿</button>
         <button className={`abtn ${memoryOpen ? 'on' : ''}`} title="Project memory (persistent AI context)" onClick={() => setMemoryOpen(true)}>✎</button>
+        <button className="abtn" title="Play the game in this workspace" onClick={playGame}>▶</button>
         {isDesktop && (
           <button
             className={`abtn ${bridge?.running ? 'on' : ''}`}

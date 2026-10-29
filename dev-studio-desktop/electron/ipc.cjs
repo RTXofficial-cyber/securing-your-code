@@ -526,6 +526,28 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
     return { ok: true, url: bridge.url, port: bridge.port, mode: state.bridgeMode };
   }
 
+  // ---------- open a scaffolded game in the OS browser ----------
+  handle('game:open', () => {
+    const rootDir = state.rootRef.value;
+    const candidates = ['game/index.html', 'games/index.html'];
+    try {
+      for (const entry of fs.readdirSync(rootDir, { withFileTypes: true })) {
+        if (entry.isDirectory()) candidates.push(`${entry.name}/index.html`);
+      }
+    } catch {}
+    for (const rel of candidates) {
+      const abs = path.join(rootDir, rel);
+      try {
+        if (fs.existsSync(abs) && fs.existsSync(path.join(path.dirname(abs), 'game.js'))) {
+          shell.openPath(abs);
+          lock.audit('game.open', { path: rel });
+          return { ok: true, path: rel };
+        }
+      } catch {}
+    }
+    return { ok: false, error: 'No game yet — ask the AI: "make a game" (or a platformer / runner / space shooter).' };
+  });
+
   handle('bridge:start', (_e, mode) => ensureBridge(mode));
 
   handle('bridge:open', async (_e, mode) => {

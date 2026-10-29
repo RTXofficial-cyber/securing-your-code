@@ -1,0 +1,8 @@
+{
+  "id": "game-studio",
+  "name": "Game Studio",
+  "version": "1.0.0",
+  "entry": "index.cjs",
+  "description": "Scaffolds complete, polished zero-dependency games (GameKit engine + genre templates) into your workspace and verifies them.",
+  "type": "tools"
+}

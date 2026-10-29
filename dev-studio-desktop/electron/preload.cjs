@@ -55,6 +55,8 @@ const studio = {
     return () => ipcRenderer.removeListener('terminal:data', listener);
   },
 
+  gameOpen: () => ipcRenderer.invoke('game:open'),
+
   // ---- loopback bridge (open this same workspace in Chrome) ----
   bridgeStart: (mode) => ipcRenderer.invoke('bridge:start', mode),
   bridgeOpen: (mode) => ipcRenderer.invoke('bridge:open', mode),

@@ -146,6 +146,7 @@ const mock = {
   },
   terminalKill: async () => ({ ok: true }),
   onTerminal: () => () => {},
+  gameOpen: async () => ({ ok: true, url: '/play/' }),
   bridgeStart: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeOpen: async () => ({ ok: false, error: 'Only available in the desktop app' }),
   bridgeStop: async () => ({ ok: true, running: false }),
@@ -277,6 +278,7 @@ function makeBridgeTransport(token) {
     terminalSend: (c) => rpc('terminalSend', c),
     terminalKill: () => rpc('terminalKill'),
     onTerminal: (cb) => { ensureWs(); subs.add(cb); return () => subs.delete(cb); },
+    gameOpen: desktopOnly('Opening the OS browser is desktop-only'),
     // these have no meaning inside a browser tab
     chooseWorkspace: desktopOnly('Folder picker is desktop-only'),
     openWorkspace: desktopOnly('Opening folders is desktop-only'),

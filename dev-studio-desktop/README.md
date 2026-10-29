@@ -232,6 +232,30 @@ your context window.
 It is plain JSON inside your project: commit it and your teammates — and every
 model you connect — inherit the same understanding of the codebase.
 
+## Game Studio — say "make a game", get a finished game
+
+The built-in AI ships with **GameKit** (`shared/gamekit/engine.js`): a
+zero-dependency browser engine with a fixed-timestep loop, keyboard / mouse /
+touch / **gamepad** input, AABB physics, particles, screen shake, hit-stop,
+squash & stretch, WebAudio synth SFX, parallax starfield, pause, and
+localStorage high-scores. On top of it sit four complete genre templates:
+
+| Genre | Template | Feel |
+|---|---|---|
+| `arena` | VOID ARENA | twin-stick survival, dashes, heal orbs, waves |
+| `platformer` | MONO JUMP | coyote time, jump buffering, squash & stretch, coins, flag |
+| `shmup` | STARFALL | patterns, power-ups, bombs, bosses-lite big foes |
+| `runner` | LINE RUNNER | double jump, slide, ramps speed forever, gems |
+
+Ask the AI *"make a game"* / *"make a platformer"* / *"make a space shooter"* —
+the official **game-studio plugin** (`action:game_new`) copies the engine +
+template into `game/`, then `action:game_check` syntax-verifies it. Press the
+**▶ play** button in the activity bar and the game opens in your browser.
+
+The same four games ship inside the app as an arcade: open
+`<app>/play/` (or `/play/` on the preview server) and play them with no
+install — proof the engine is real, not a promise.
+
 ## Testing
 
 ```bash
