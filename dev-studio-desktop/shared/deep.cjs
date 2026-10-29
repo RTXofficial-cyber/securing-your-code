@@ -17,6 +17,7 @@
 const autopilot = require('./autopilot.cjs');
 const websearch = require('./websearch.cjs');
 const agent = require('./agent.cjs');
+const react = require('./react.cjs');
 
 const IS_WIN = process.platform === 'win32';
 const PY = IS_WIN ? 'py' : 'python3';
@@ -105,10 +106,29 @@ async function deepRun(opts) {
     enriched += '\n\nResearch context from the live web (use only if relevant):\n'
       + research.results.slice(0, 5).map((r) => `- ${r.title}: ${r.snippet} (${r.url})`).join('\n');
   }
-  const mission = await autopilot.runMission({
-    goal: enriched, provider, model, ws, permissions, chat, maxIterations
-  });
-  out.mission = mission;
+  if (provider && provider !== 'builtin') {
+    // Frontier models get the full ReAct loop: one tool per turn, real
+    // observations, permission gates, until the model calls done.
+    const researchContext = research && research.results && research.results.length
+      ? research.results.slice(0, 5).map((r) => `- ${r.title}: ${r.snippet} (${r.url})`).join('\n')
+      : '';
+    const r = await react.runAgent({
+      goal: String(goal), provider, model, ws, permissions, chat, fetchImpl,
+      maxSteps: Number(opts.maxSteps) || 8,
+      researchContext
+    });
+    out.engine = 'react';
+    out.react = r;
+    out.mission = {
+      ok: r.ok, summary: 'deep react agent', done: String(r.answer || '').slice(0, 140),
+      iterations: [], files: r.files, error: r.error
+    };
+  } else {
+    out.mission = await autopilot.runMission({
+      goal: enriched, provider, model, ws, permissions, chat, maxIterations
+    });
+  }
+  const mission = out.mission;
 
   // ---- 4. CHECK phase: prove every written file parses ----
   if (permissions.runCommands && ws && typeof ws.root === 'function') {

@@ -411,7 +411,7 @@ function registerIpc(mainIpc, { workspace, getWindow }) {
         chat: (pr, md, messages) => providers.chat(pr, md, messages),
         maxIterations: Math.min(4, Math.max(1, Number(maxIterations) || 3))
       });
-      lock.audit('deep.run', { goal: goal.slice(0, 120), mode: r.mode, ok: r.ok, checks: r.checks.length, files: r.mission ? r.mission.files.length : 0 });
+      lock.audit('deep.run', { goal: goal.slice(0, 120), mode: r.mode, engine: r.engine || 'mission', ok: r.ok, steps: r.react ? r.react.steps.length : 0, checks: r.checks.length, files: r.mission ? r.mission.files.length : 0 });
       return { ok: true, ...r };
     } catch (e) {
       return { ok: false, error: e.message };

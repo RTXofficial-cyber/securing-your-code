@@ -269,6 +269,31 @@ machine unless you allow it), the audit trail, and working with no key at all.
 The app translates all of these raw HTTP/JSON failures into plain guidance
 with the exact next step (`friendlyProviderError`).
 
+## ReAct agent — connected models work step by step, not one-shot
+
+When a real model (OpenAI/GPT-6 Astra, Claude, Gemini, Groq, OpenRouter,
+Ollama…) is selected, Deep mode's build path runs a **ReAct loop**: the model
+calls ONE tool per turn and reads the real observation before deciding the
+next move — exactly how a careful engineer works:
+
+```
+web_search → read_file → write_file → run_command (node --check) → done
+```
+
+- Fence-tolerant tool protocol (```tool JSON, bare JSON, or JSON inside prose)
+- Permission gates apply per tool: a SKIPPED write/command is *reported back
+  to the model* so it adapts instead of hallucinating success
+- Observations are real (web results, file contents, exit codes, stdout),
+  truncated and capped; rambling replies get one nudge, then become the answer
+- The loop caps at 14 steps; `done` ends it with a final answer + file list
+- Afterwards the CHECK phase still re-verifies every written file locally
+- Offline (built-in provider) Deep mode keeps the plan→execute→verify→fix
+  Autopilot loop — smaller brain, same discipline
+
+Every step is rendered in the chat transcript: `[step N] tool · args ·
+observation`, so nothing the agent did is hidden. `deep.run` audit entries
+now record engine + step count.
+
 ## Deep mode — the full agent: research → build → check
 
 A fourth chat pill, **Deep**, runs the whole loop in one message:

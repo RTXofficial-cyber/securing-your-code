@@ -76,7 +76,7 @@ function Pipeline({ steps }) {
 
 const WELCOME = `Welcome to Dev Studio.
 
-**Deep mode** (below) is the full agent: it researches the live web (cited answers, Perplexity-style), plans, writes and runs code, verifies with exit codes, and finishes with syntax checks on every file it wrote.\n\n**Auto mode** (below) is autonomous: it plans the goal, writes and runs the code, verifies it (exit codes), and on failure feeds the error back and fixes it — up to 3 loops, always inside your permission toggles.\n\n**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
+**Deep mode** (below) is the full agent: it researches the live web (cited answers, Perplexity-style); with a connected model it works step by step like an engineer — one tool per turn (web_search / read_file / write_file / run_command), reading real observations until it calls done; offline it runs the plan→execute→verify→fix loop instead. Either way it finishes with syntax checks on every file it wrote.\n\n**Auto mode** (below) is autonomous: it plans the goal, writes and runs the code, verifies it (exit codes), and on failure feeds the error back and fixes it — up to 3 loops, always inside your permission toggles.\n\n**Team mode** (below) runs several AIs in the background on one request: a Researcher gathers accurate facts, an Architect plans, a Coder writes the code, and a Reviewer checks it — each sees your real project files, and each hands its output to the next.
 
 Solo mode uses one model. Click any “wrote …” line to open that file.`;
 
@@ -128,7 +128,9 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
               : [
                 `DEEP ${res.ok ? '✓ VERIFIED + CHECKED' : '✗ STOPPED'} — ${res.mission?.summary || res.goal}`,
                 res.research?.count ? `\n[research] ${res.research.count} live source(s) via ${res.research.source}:\n${res.research.results.slice(0, 4).map((r, i) => `${i + 1}. [${r.title}](${r.url})`).join('\n')}` : '',
-                ...(res.mission?.iterations || []).map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1200)}`),
+                ...(res.react
+                  ? res.react.steps.map((st) => `\n[step ${st.step}] ${st.tool}${st.skipped ? ' · SKIPPED by permissions' : ''} ${st.args || ''}\n${(st.observation || '').slice(0, 700)}`).concat(res.react.answer ? [`\n[answer] ${res.react.answer}`] : [])
+                  : (res.mission?.iterations || []).map((it) => `\n[iter ${it.iter}] ${it.phase} · ${it.actions} action(s)${it.skipped?.length ? ` · SKIPPED by permissions: ${it.skipped.join('; ')}` : ''}\n${(it.log || '').slice(0, 1200)}`)),
                 res.checks?.length ? `\n[check] ${res.checks.map((c) => `${c.file} → ${c.cmd} → exit ${c.code}`).join('\n')}` : '',
                 `\nfiles: ${res.mission?.files?.length ? res.mission.files.join(', ') : 'none'}`,
                 res.error ? `error: ${res.error}` : ''
@@ -208,7 +210,7 @@ export default function ChatPane({ providers, onAgentActed, onFileCreated, onNee
             <button className={`mode-btn ${!teamMode && !autoMode && !deepMode ? 'on' : ''}`} onClick={() => { setTeamMode(false); setAutoMode(false); setDeepMode(false); }}>Solo</button>
             <button className={`mode-btn ${teamMode ? 'on' : ''}`} onClick={() => { setTeamMode(true); setAutoMode(false); setDeepMode(false); }}>Team</button>
             <button className={`mode-btn ${autoMode ? 'on' : ''}`} title="Autonomous: plan, execute, verify and fix — inside your permissions" onClick={() => { setAutoMode(true); setTeamMode(false); setDeepMode(false); }}>Auto</button>
-            <button className={`mode-btn ${deepMode ? 'on' : ''}`} title="Deep: live web research + plan + execute + verify + final checks" onClick={() => { setDeepMode(true); setTeamMode(false); setAutoMode(false); }}>Deep</button>
+            <button className={`mode-btn ${deepMode ? 'on' : ''}`} title="Deep: live web research + step-by-step agent (connected models) or plan→verify loop (offline) + final checks" onClick={() => { setDeepMode(true); setTeamMode(false); setAutoMode(false); }}>Deep</button>
           </div>
           <button className="icon-btn" onClick={onHide} title="Hide panel">✕</button>
         </div>

@@ -887,6 +887,108 @@ async function test(name, fn) {
     assert.equal(fs.readdirSync(dir).length, 0, 'gated mission wrote nothing');
   });
 
+  console.log('\nReAct agent (step-by-step tool loop)');
+  const react = require('../shared/react.cjs');
+
+  function scripted(replies) {
+    let i = 0;
+    return async () => replies[Math.min(i, replies.length - 1)] && replies[i++] || replies[replies.length - 1];
+  }
+
+  await test('parseToolCall is fence-tolerant and rejects rambling', async () => {
+    assert.deepEqual(react.parseToolCall('```tool\n{"tool":"done","answer":"hi"}\n```'), { tool: 'done', answer: 'hi' });
+    assert.deepEqual(react.parseToolCall('Sure! ```json {"tool":"list_files"} ``` Let me look.'), { tool: 'list_files' });
+    assert.deepEqual(react.parseToolCall('{"tool":"read_file","path":"a.js"}'), { tool: 'read_file', path: 'a.js' });
+    assert.equal(react.parseToolCall('I think we should consider many options here'), null);
+    assert.equal(react.parseToolCall('{"nope": true}'), null);
+  });
+
+  await test('react loop: search -> write -> verify -> done, all observed for real', async () => {
+    const dir = path.join(tmp, 'reactws');
+    fs.mkdirSync(dir, { recursive: true });
+    const wsR = makeWorkspaceHelpers({ value: dir });
+    const chat = scripted([
+      '```tool\n{"tool":"web_search","query":"node js hello world best practice"}\n```',
+      'Let me write the file. ```tool\n{"tool":"write_file","path":"hello.js","content":"console.log(\'hello react\');\\n"}\n```',
+      '```tool\n{"tool":"run_command","command":"node --check hello.js && node hello.js"}\n```',
+      '```tool\n{"tool":"done","answer":"hello.js likh diya aur verify kar liya.","files":["hello.js"]}\n```'
+    ]);
+    const r = await react.runAgent({
+      goal: 'write and verify hello.js',
+      provider: 'openai', model: 'gpt-test', ws: wsR,
+      permissions: { writeFiles: true, runCommands: true },
+      chat,
+      fetchImpl: mockFetch({ 'duckduckgo.com/html': DDG_HTML })
+    });
+    assert.equal(r.ok, true);
+    assert.equal(r.engine, 'react');
+    assert.match(r.answer, /verify kar liya/);
+    assert.deepEqual(r.files, ['hello.js']);
+    assert.equal(r.steps.length, 4);
+    assert.equal(r.steps[0].tool, 'web_search');
+    assert.match(r.steps[0].observation, /nodejs\.org/); // live results reached the model
+    assert.match(r.steps[1].observation, /wrote hello\.js/);
+    assert.match(r.steps[2].observation, /exit 0/);
+    assert.match(r.steps[2].observation, /hello react/); // real stdout observed
+    assert.equal(fs.readFileSync(path.join(dir, 'hello.js'), 'utf8'), "console.log('hello react');\n");
+  });
+
+  await test('react gates writes/commands and reports skips back to the model', async () => {
+    const dir = path.join(tmp, 'reactws2');
+    fs.mkdirSync(dir, { recursive: true });
+    const chat = scripted([
+      '{"tool":"write_file","path":"x.js","content":"1"}',
+      '{"tool":"run_command","command":"node x.js"}',
+      '{"tool":"done","answer":"permissions ki wajah se kuch nahi likha."}'
+    ]);
+    const r = await react.runAgent({
+      goal: 'make something', provider: 'openai', ws: makeWorkspaceHelpers({ value: dir }),
+      permissions: { writeFiles: false, runCommands: false }, chat, fetchImpl: mockFetch({})
+    });
+    assert.equal(r.steps[0].skipped, true);
+    assert.match(r.steps[0].observation, /SKIPPED by permissions/);
+    assert.equal(r.steps[1].skipped, true);
+    assert.deepEqual(r.files, []);
+    assert.equal(fs.readdirSync(dir).length, 0);
+  });
+
+  await test('react nudges rambling models and caps the loop', async () => {
+    const dir = path.join(tmp, 'reactws3');
+    fs.mkdirSync(dir, { recursive: true });
+    const chat = scripted(['Hmm, let me think about the best approach here...']);
+    const r = await react.runAgent({
+      goal: 'anything', provider: 'openai', ws: makeWorkspaceHelpers({ value: dir }), chat, maxSteps: 3, fetchImpl: mockFetch({})
+    });
+    assert.equal(r.steps.length, 2); // nudge once, then the second ramble becomes the answer
+    assert.match(r.steps[0].observation, /nudged/);
+    assert.match(r.answer, /best approach/); // second ramble becomes the answer
+  });
+
+  await test('deep build mode uses the react loop for connected providers and checks files', async () => {
+    const dir = path.join(tmp, 'reactws4');
+    fs.mkdirSync(dir, { recursive: true });
+    const chat = scripted([
+      '```tool\n{"tool":"list_files"}\n```',
+      '```tool\n{"tool":"write_file","path":"app.js","content":"const x = 41 + 1;\\nconsole.log(x);\\n"}\n```',
+      '```tool\n{"tool":"run_command","command":"node --check app.js"}\n```',
+      '```tool\n{"tool":"done","answer":"app.js ready and verified."}\n```'
+    ]);
+    const r = await deep.deepRun({
+      goal: 'build a tiny script that prints 42',
+      provider: 'openai', model: 'gpt-test',
+      ws: makeWorkspaceHelpers({ value: dir }),
+      permissions: { writeFiles: true, runCommands: true },
+      chat, fetchImpl: mockFetch({})
+    });
+    assert.equal(r.mode, 'build');
+    assert.equal(r.engine, 'react');
+    assert.equal(r.ok, true);
+    assert.deepEqual(r.mission.files, ['app.js']);
+    assert.equal(r.checks.length, 1);
+    assert.equal(r.checks[0].code, 0); // CHECK phase re-proved the file locally
+    assert.match(r.react.answer, /verified/);
+  });
+
   console.log('\nApp lock & audit');
   const { LockManager } = require('../shared/lock.cjs');
 
