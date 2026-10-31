@@ -6,7 +6,7 @@
 # AIR DEVELOPING landing page that points at the release zip.
 name = "securing-your-code"
 main = "worker/index.js"
-compatibility_date = "2026-10-01"
+compatibility_date = "2025-01-01"
 
 # No [build] command on purpose: the Worker has zero dependencies, so the
 # root package.json (npm install / postinstall Angular build) must NOT be
