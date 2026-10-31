@@ -1,0 +1,13 @@
+# AIR DEVELOPING — Cloudflare Worker for the "securing-your-code" service.
+# Workers Builds was failing because the repository had no Worker
+# configuration at all (the root project is a heavy Node/Angular app that
+# cannot be deployed as a Worker). This minimal, dependency-free Worker
+# gives the build something real to bundle and deploy: a black & white
+# AIR DEVELOPING landing page that points at the release zip.
+name = "securing-your-code"
+main = "worker/index.js"
+compatibility_date = "2026-10-01"
+
+# No [build] command on purpose: the Worker has zero dependencies, so the
+# root package.json (npm install / postinstall Angular build) must NOT be
+# part of the deploy pipeline.
